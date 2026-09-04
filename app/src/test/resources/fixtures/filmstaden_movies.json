@@ -1,0 +1,23 @@
+{
+ "totalNbrOfItems": 2,
+ "items": [
+  {
+   "ncgId": "NCG994189",
+   "title": "Spider-Man: Brand New Day",
+   "originalTitle": "Spider-Man: Brand New Day",
+   "slug": "spider-man-brand-new-day",
+   "productionYear": 2026,
+   "length": 145,
+   "posterUrl": "https://catalog.cinema-api.com/cf/images/ncg-images/ca517120306a48d4a1fd302282f9a566.jpg?width=1440&version=546C7F5DFBDD22700EF297A788CEC997"
+  },
+  {
+   "ncgId": "NCG633523",
+   "title": "The Odyssey",
+   "originalTitle": "The Odyssey",
+   "slug": "the-odyssey",
+   "productionYear": 2026,
+   "length": 172,
+   "posterUrl": "https://catalog.cinema-api.com/cf/images/ncg-images/382d1e2acd7b4136a6be49c7ef9a8f83.jpg?width=1440&version=DB7BEB233B135918A3EBE07219AEA94B"
+  }
+ ]
+}

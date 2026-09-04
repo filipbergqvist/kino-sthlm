@@ -1,0 +1,18 @@
+# Normalise to LF in the repository; Git checks out native line endings on Windows.
+* text=auto
+
+# Must stay LF and executable: CRLF here makes the Linux CI runner fail with
+# "bad interpreter: No such file or directory".
+gradlew text eol=lf
+
+# Windows-only script.
+gradlew.bat text eol=crlf
+
+# Binary, never touched.
+*.jar binary
+*.apk binary
+*.keystore binary
+*.jks binary
+*.png binary
+*.webp binary
+*.jpg binary

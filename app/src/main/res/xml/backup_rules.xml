@@ -1,13 +1,10 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-   Sample backup rules file; uncomment and customize as necessary.
-   See https://developer.android.com/guide/topics/data/autobackup
-   for details.
-   Note: This file is ignored for devices older than API 31
-   See https://developer.android.com/about/versions/12/backup-restore
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 11 and older. The Trakt tokens are encrypted with a key held in the device keystore,
+  which is never backed up, so restoring them onto another device yields undecryptable garbage.
+  Exclude them and let the user reconnect instead.
 -->
 <full-backup-content>
-    <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
+    <exclude domain="sharedpref" path="trakt_tokens.xml" />
+    <exclude domain="sharedpref" path="trakt_tokens_plain.xml" />
 </full-backup-content>

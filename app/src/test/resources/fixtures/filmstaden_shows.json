@@ -1,0 +1,201 @@
+{
+ "totalNbrOfItems": 12,
+ "items": [
+  {
+   "reId": "37198b47-bdd1-4358-9cfc-8070a404dd28",
+   "mId": "NCG994189",
+   "mvId": "NCG994189V1",
+   "cId": "NCG27927",
+   "ct": "Filmstaden Sergel",
+   "sId": "NCG27927S11",
+   "st": "Salong 4 VIP",
+   "serv": "NONE",
+   "sa": [
+    "7.1",
+    "VIP-salong"
+   ],
+   "utc": "2026-09-05T09:15:00Z",
+   "res": [],
+   "seatT": [],
+   "lzp": 229
+  },
+  {
+   "reId": "da66576b-2756-4a16-a101-06330174cde9",
+   "mId": "NCG994189",
+   "mvId": "NCG994189V1",
+   "cId": "NCG41487",
+   "ct": "Filmstaden Scandinavia",
+   "sId": "NCG41487S15",
+   "st": "Salong 15 VIP",
+   "serv": "NONE",
+   "sa": [
+    "VIP-salong"
+   ],
+   "utc": "2026-09-05T09:30:00Z",
+   "res": [],
+   "seatT": [],
+   "lzp": 229
+  },
+  {
+   "reId": "e0778234-cc03-4185-9b16-4c5664d98d8e",
+   "mId": "NCG994189",
+   "mvId": "NCG994189V2",
+   "cId": "NCG41487",
+   "ct": "Filmstaden Scandinavia",
+   "sId": "NCG41487S4",
+   "st": "Salong 4",
+   "serv": "NONE",
+   "sa": [],
+   "utc": "2026-09-05T10:15:00Z",
+   "res": [],
+   "seatT": [],
+   "lzp": 99
+  },
+  {
+   "reId": "684f232f-3011-4fa9-b52a-dad261456902",
+   "mId": "NCG994189",
+   "mvId": "NCG994189V1",
+   "cId": "NCG76480",
+   "ct": "Filmstaden Rigoletto",
+   "sId": "NCG76480S6",
+   "st": "Salong 2 ",
+   "serv": "SERV",
+   "sa": [],
+   "utc": "2026-09-05T12:00:00Z",
+   "res": [],
+   "seatT": [],
+   "lzp": 99
+  },
+  {
+   "reId": "74c9dfc2-963c-4f0e-b412-949cf8a318fa",
+   "mId": "NCG994189",
+   "mvId": "NCG994189V2",
+   "cId": "NCG41487",
+   "ct": "Filmstaden Scandinavia",
+   "sId": "NCG41487S2",
+   "st": "Salong 2",
+   "serv": "BAR",
+   "sa": [],
+   "utc": "2026-09-05T12:00:00Z",
+   "res": [],
+   "seatT": [],
+   "lzp": 99
+  },
+  {
+   "reId": "2b5894a9-d6fe-45cb-b167-d55f792c5667",
+   "mId": "NCG994189",
+   "mvId": "NCG994189V1",
+   "cId": "NCG27927",
+   "ct": "Filmstaden Sergel",
+   "sId": "NCG27927S9",
+   "st": "Salong 1",
+   "serv": "NONE",
+   "sa": [
+    "7.1",
+    "XL - vår största duk"
+   ],
+   "utc": "2026-09-05T12:15:00Z",
+   "res": [],
+   "seatT": [],
+   "lzp": 99
+  },
+  {
+   "reId": "dbae7295-91e5-44ae-837a-899094d39400",
+   "mId": "NCG994189",
+   "mvId": "NCG994189V1",
+   "cId": "NCG41487",
+   "ct": "Filmstaden Scandinavia",
+   "sId": "NCG41487S15",
+   "st": "Salong 15 VIP",
+   "serv": "NONE",
+   "sa": [
+    "VIP-salong"
+   ],
+   "utc": "2026-09-05T13:00:00Z",
+   "res": [],
+   "seatT": [],
+   "lzp": 229
+  },
+  {
+   "reId": "0e9f10d5-bc22-4e3c-b0dd-5190f55e642b",
+   "mId": "NCG994189",
+   "mvId": "NCG994189V1",
+   "cId": "NCG27927",
+   "ct": "Filmstaden Sergel",
+   "sId": "NCG27927S4",
+   "st": "Salong 11",
+   "serv": "NONE",
+   "sa": [
+    "5.1"
+   ],
+   "utc": "2026-09-05T13:20:00Z",
+   "res": [],
+   "seatT": [],
+   "lzp": 99
+  },
+  {
+   "reId": "d6d38e3b-7ebb-495d-a4f5-d4f0d440b118",
+   "mId": "NCG994189",
+   "mvId": "NCG994189V2",
+   "cId": "NCG41487",
+   "ct": "Filmstaden Scandinavia",
+   "sId": "NCG41487S4",
+   "st": "Salong 4",
+   "serv": "BAR",
+   "sa": [],
+   "utc": "2026-09-05T13:45:00Z",
+   "res": [],
+   "seatT": [],
+   "lzp": 99
+  },
+  {
+   "reId": "17166765-81db-4a05-b788-c9cf87a7a053",
+   "mId": "NCG994189",
+   "mvId": "NCG994189V1",
+   "cId": "NCG27927",
+   "ct": "Filmstaden Sergel",
+   "sId": "NCG27927S12",
+   "st": "Salong 3",
+   "serv": "NONE",
+   "sa": [
+    "5.1"
+   ],
+   "utc": "2026-09-05T14:10:00Z",
+   "res": [],
+   "seatT": [],
+   "lzp": 99
+  },
+  {
+   "reId": "ce82c73b-1f34-4884-86ee-178eb70dc672",
+   "mId": "NCG994189",
+   "mvId": "NCG994189V1",
+   "cId": "NCG41487",
+   "ct": "Filmstaden Scandinavia",
+   "sId": "NCG41487S13",
+   "st": "Salong 13 VIP",
+   "serv": "NONE",
+   "sa": [
+    "VIP-salong"
+   ],
+   "utc": "2026-09-05T14:30:00Z",
+   "res": [],
+   "seatT": [],
+   "lzp": 229
+  },
+  {
+   "reId": "a89b664a-a911-476a-bdc7-4f79540b524d",
+   "mId": "NCG994189",
+   "mvId": "NCG994189V5",
+   "cId": "NCG76480",
+   "ct": "Filmstaden Rigoletto",
+   "sId": "NCG76480S6",
+   "st": "Salong 2 ",
+   "serv": "BAR18",
+   "sa": [],
+   "utc": "2026-09-05T15:30:00Z",
+   "res": [],
+   "seatT": [],
+   "lzp": 99
+  }
+ ]
+}
