@@ -1,0 +1,107 @@
+name: Cinema source canary
+
+# Cinema sites change without warning. This hits each source for real and opens an issue when
+# one stops returning usable data, so a break surfaces here rather than as a silently empty app.
+on:
+  schedule:
+    # 07:00 UTC daily. Note: GitHub disables scheduled workflows on public repos after 60 days
+    # with no commits — push something, or re-enable it in the Actions tab, to resume.
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Run live source canaries
+        id: canary
+        env:
+          KINO_LIVE_TESTS: '1'
+        run: ./gradlew test --tests '*LiveSourceCanaryTest*' --stacktrace
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: canary-report
+          path: app/build/reports/tests/
+
+      # One rolling issue rather than a new one each morning.
+      - name: Open or update an issue on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = 'Cinema source canary is failing';
+            const body = [
+              'The scheduled canary could not read one or more cinema sources.',
+              '',
+              `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              '',
+              'Download the `canary-report` artifact to see which source broke.',
+              'A site redesign usually means updating the matching adapter in `data/source/`.',
+            ].join('\n');
+
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'canary',
+            });
+
+            if (existing.data.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.data[0].number,
+                body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['canary'],
+              });
+            }
+
+      # Close the issue once the sources recover.
+      - name: Close the canary issue on success
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'canary',
+            });
+            for (const issue of existing.data) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: 'All cinema sources are responding again. Closing.',
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: 'closed',
+              });
+            }

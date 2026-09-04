@@ -1,0 +1,63 @@
+name: Release
+
+# Push a tag like v1.0.0 and this builds the APK and publishes it as a GitHub Release,
+# so friends can install KinoSthlm from the Releases page. No Play Console involved.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v1.0.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit tests
+        run: ./gradlew test --stacktrace
+
+      # Trakt credentials are per-developer. Add them as repository secrets to ship a build
+      # with Trakt enabled; without them the APK still works, minus the Trakt tab.
+      - name: Build release APK
+        env:
+          TRAKT_CLIENT_ID: ${{ secrets.TRAKT_CLIENT_ID }}
+          TRAKT_CLIENT_SECRET: ${{ secrets.TRAKT_CLIENT_SECRET }}
+        run: ./gradlew assembleRelease --stacktrace
+
+      - name: Name the APK after the tag
+        id: rename
+        run: |
+          VERSION="${{ github.event.inputs.tag || github.ref_name }}"
+          mv app/build/outputs/apk/release/app-release.apk "KinoSthlm-${VERSION}.apk"
+          echo "apk=KinoSthlm-${VERSION}.apk" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: ${{ steps.rename.outputs.apk }}
+          generate_release_notes: true
+          body: |
+            ## Install
+
+            Download the `.apk` below and open it on your Android phone. Android will ask you to
+            allow installs from your browser or file manager the first time — that permission is
+            per-app and you can turn it back off afterwards.
+
+            This build is signed with a debug key, which is fine for sideloading. It means Android
+            treats it as a different app from any Play Store build, and that upgrades must come
+            from a release signed with the same key.
