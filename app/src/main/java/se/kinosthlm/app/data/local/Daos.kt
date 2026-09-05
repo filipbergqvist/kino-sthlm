@@ -158,6 +158,9 @@ interface WatchlistDao {
   @Query("UPDATE watchlist_items SET notificationsMuted = :muted WHERE id = :itemId")
   suspend fun setMuted(itemId: String, muted: Boolean)
 
+  @Query("UPDATE watchlist_items SET requiredVenueTag = :tag WHERE id = :itemId")
+  suspend fun setRequiredVenueTag(itemId: String, tag: String?)
+
   /** Entries still awaiting the user's choice between several same-named films. */
   @Query("SELECT * FROM watchlist_items WHERE needsReview = 1 ORDER BY title ASC")
   fun observeNeedingReview(): Flow<List<WatchlistItem>>

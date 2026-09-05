@@ -39,6 +39,12 @@ data class WatchlistItem(
   val overview: String? = null,
   /** Still matched and shown, but never pushes a notification. Set per-film from the detail view. */
   val notificationsMuted: Boolean = false,
+  /**
+   * Only notify for a screening at a cinema carrying this [Cinema.tagList] tag — e.g. "Big
+   * Screen" for a film worth seeing large, "Cozy" for one better suited to a small independent.
+   * Null means any cinema. The screening still shows either way; this only gates the push.
+   */
+  val requiredVenueTag: String? = null,
 ) {
   val isFilm: Boolean get() = titleType != TYPE_SERIES
 
@@ -97,7 +103,20 @@ data class Cinema(
   val isEnabled: Boolean = true,
   val lastPolledAt: Long = 0L,
   val upcomingScreeningsCount: Int = 0,
-)
+  /** Comma-joined venue features, e.g. "Big Screen,IMAX". See [tagList]. */
+  val tags: String = "",
+) {
+  val tagList: List<String> get() = tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+
+  companion object {
+    const val TAG_BIG_SCREEN = "Big Screen"
+    const val TAG_COZY = "Cozy"
+    const val TAG_IMAX = "IMAX"
+
+    /** Every venue tag a film's [WatchlistItem.requiredVenueTag] can be set to. */
+    val ALL_TAGS = listOf(TAG_BIG_SCREEN, TAG_COZY, TAG_IMAX)
+  }
+}
 
 /** A showing of a watchlisted film at a Stockholm cinema. */
 @Entity(

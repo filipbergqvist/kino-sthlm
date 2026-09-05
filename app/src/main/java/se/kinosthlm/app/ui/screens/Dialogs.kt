@@ -112,7 +112,7 @@ fun ReviewDialog(
         Text("Not a film")
       }
     },
-    dismissButton = { TextButton(onClick = onDismiss) { Text("Later") } },
+    dismissButton = { TextButton(onClick = ::advance) { Text("Later") } },
   )
 }
 
@@ -223,6 +223,12 @@ fun AddFilmDialog(
             "Searching…",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        } else if (searchState.error != null) {
+          Text(
+            searchState.error,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
           )
         } else if (searched && searchState.results.isEmpty()) {
           Text(

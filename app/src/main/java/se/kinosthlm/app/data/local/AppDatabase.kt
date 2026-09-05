@@ -25,7 +25,7 @@ import se.kinosthlm.app.data.source.TellusSource
     TitleCandidate::class,
     WatchlistSource::class,
   ],
-  version = 5,
+  version = 6,
   exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -68,23 +68,23 @@ abstract class AppDatabase : RoomDatabase() {
      */
     val defaultCinemas: List<Cinema> =
       listOf(
-        // --- Filmstaden ---
-        ncg("filmstaden_rigoletto", "Filmstaden Rigoletto", "NCG76480", "Norrmalm", "Kungsgatan 16", "Grand old picture palace on Kungsgatan"),
-        ncg("filmstaden_sergel", "Filmstaden Sergel", "NCG27927", "Norrmalm", "Hötorget 2", "Central multiplex at Hötorget"),
-        ncg("filmstaden_scandinavia", "Filmstaden Scandinavia", "NCG41487", "Solna", "Mall of Scandinavia, Stjärntorget 2", "IMAX and the largest screens in Stockholm"),
-        ncg("filmstaden_heron", "Filmstaden Heron City", "NCG16299", "Kungens kurva", "Heron City, Dialoggatan 3", "Large suburban multiplex"),
-        ncg("filmstaden_kista", "Filmstaden Kista", "NCG48048", "Kista", "Kista Galleria", "Multiplex in Kista Galleria"),
-        ncg("filmstaden_sickla", "Filmstaden Sickla", "NCG66921", "Nacka", "Sickla Köpkvarter", "Multiplex in Sickla"),
-        ncg("filmstaden_vallingby", "Filmstaden Vällingby", "NCG78594", "Vällingby", "Vällingby Centrum", "Neighbourhood multiplex"),
-        ncg("filmstaden_rasunda", "Filmstaden Råsunda", "NCG95905", "Solna", "Råsundavägen 150", "Classic Solna cinema"),
-        ncg("filmstaden_taby", "Filmstaden Täby", "NCG84379", "Täby", "Täby Centrum", "Multiplex in Täby Centrum"),
-        // --- Other venues on the same booking platform ---
-        ncg("grand_stockholm", "Grand", "NCG49012", "Östermalm", "Sveavägen 45", "Arthouse and premieres on Sveavägen"),
-        ncg("victoria_stockholm", "Victoria", "NCG74195", "Södermalm", "Götgatan 67", "Södermalm's big neighbourhood cinema"),
-        ncg("sture", "Sture", "NCG58657", "Östermalm", "Birger Jarlsgatan 41", "Arthouse, documentaries and festivals"),
-        ncg("saga", "Saga", "NCG50537", "Norrmalm", "Kungsgatan 24", "Historic Kungsgatan cinema"),
-        ncg("grand_lidingo", "Grand Lidingö", "NCG23107", "Lidingö", "Stockholmsvägen 62", "Lidingö's local cinema"),
-        // --- Independents, one adapter each ---
+        // --- Filmstaden: genuine multiplexes, tagged for the "big screen" preference ---
+        ncg("filmstaden_rigoletto", "Filmstaden Rigoletto", "NCG76480", "Norrmalm", "Kungsgatan 16", "Grand old picture palace on Kungsgatan", Cinema.TAG_BIG_SCREEN),
+        ncg("filmstaden_sergel", "Filmstaden Sergel", "NCG27927", "Norrmalm", "Hötorget 2", "Central multiplex at Hötorget", Cinema.TAG_BIG_SCREEN),
+        ncg("filmstaden_scandinavia", "Filmstaden Scandinavia", "NCG41487", "Solna", "Mall of Scandinavia, Stjärntorget 2", "IMAX and the largest screens in Stockholm", "${Cinema.TAG_BIG_SCREEN},${Cinema.TAG_IMAX}"),
+        ncg("filmstaden_heron", "Filmstaden Heron City", "NCG16299", "Kungens kurva", "Heron City, Dialoggatan 3", "Large suburban multiplex", Cinema.TAG_BIG_SCREEN),
+        ncg("filmstaden_kista", "Filmstaden Kista", "NCG48048", "Kista", "Kista Galleria", "Multiplex in Kista Galleria", Cinema.TAG_BIG_SCREEN),
+        ncg("filmstaden_sickla", "Filmstaden Sickla", "NCG66921", "Nacka", "Sickla Köpkvarter", "Multiplex in Sickla", Cinema.TAG_BIG_SCREEN),
+        ncg("filmstaden_vallingby", "Filmstaden Vällingby", "NCG78594", "Vällingby", "Vällingby Centrum", "Neighbourhood multiplex", Cinema.TAG_BIG_SCREEN),
+        ncg("filmstaden_rasunda", "Filmstaden Råsunda", "NCG95905", "Solna", "Råsundavägen 150", "Classic Solna cinema", Cinema.TAG_BIG_SCREEN),
+        ncg("filmstaden_taby", "Filmstaden Täby", "NCG84379", "Täby", "Täby Centrum", "Multiplex in Täby Centrum", Cinema.TAG_BIG_SCREEN),
+        // --- Other venues on the same booking platform, but boutique/arthouse — "cozy" ---
+        ncg("grand_stockholm", "Grand", "NCG49012", "Östermalm", "Sveavägen 45", "Arthouse and premieres on Sveavägen", Cinema.TAG_COZY),
+        ncg("victoria_stockholm", "Victoria", "NCG74195", "Södermalm", "Götgatan 67", "Södermalm's big neighbourhood cinema", Cinema.TAG_COZY),
+        ncg("sture", "Sture", "NCG58657", "Östermalm", "Birger Jarlsgatan 41", "Arthouse, documentaries and festivals", Cinema.TAG_COZY),
+        ncg("saga", "Saga", "NCG50537", "Norrmalm", "Kungsgatan 24", "Historic Kungsgatan cinema", Cinema.TAG_COZY),
+        ncg("grand_lidingo", "Grand Lidingö", "NCG23107", "Lidingö", "Stockholmsvägen 62", "Lidingö's local cinema", Cinema.TAG_COZY),
+        // --- Independents, one adapter each — all boutique, all "cozy" ---
         Cinema(
           id = SkandiaSource.SOURCE_ID,
           name = "Bio Skandia",
@@ -93,6 +93,7 @@ abstract class AppDatabase : RoomDatabase() {
           websiteUrl = "https://bioskandia.se",
           sourceId = SkandiaSource.SOURCE_ID,
           specialty = "Gunnar Asplund's 1923 auditorium; repertory, premieres and festivals",
+          tags = Cinema.TAG_COZY,
         ),
         Cinema(
           id = CapitolSource.SOURCE_ID,
@@ -102,6 +103,7 @@ abstract class AppDatabase : RoomDatabase() {
           websiteUrl = "https://www.capitolbio.se",
           sourceId = CapitolSource.SOURCE_ID,
           specialty = "Bistro cinema; 35mm, classics and dine-in screenings",
+          tags = Cinema.TAG_COZY,
         ),
         Cinema(
           id = BioRioSource.SOURCE_ID,
@@ -111,6 +113,7 @@ abstract class AppDatabase : RoomDatabase() {
           websiteUrl = "https://www.biorio.se",
           sourceId = BioRioSource.SOURCE_ID,
           specialty = "Independent Hornstull cinema; arthouse, docs and retrospectives",
+          tags = Cinema.TAG_COZY,
         ),
         Cinema(
           id = TellusSource.SOURCE_ID,
@@ -120,6 +123,7 @@ abstract class AppDatabase : RoomDatabase() {
           websiteUrl = "https://tellusbio.nu",
           sourceId = TellusSource.SOURCE_ID,
           specialty = "Non-profit cinema café running since 1921",
+          tags = Cinema.TAG_COZY,
         ),
       )
 
@@ -130,6 +134,7 @@ abstract class AppDatabase : RoomDatabase() {
       district: String,
       address: String,
       specialty: String,
+      tags: String = "",
     ) =
       Cinema(
         id = id,
@@ -140,6 +145,7 @@ abstract class AppDatabase : RoomDatabase() {
         sourceId = FilmstadenSource.SOURCE_ID,
         remoteId = remoteId,
         specialty = specialty,
+        tags = tags,
       )
   }
 }

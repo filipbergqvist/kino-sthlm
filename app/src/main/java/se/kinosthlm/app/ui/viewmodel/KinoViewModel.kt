@@ -44,6 +44,7 @@ data class WatchlistEntry(
 data class AddSearchState(
   val results: List<TitleLookup.Candidate> = emptyList(),
   val isSearching: Boolean = false,
+  val error: String? = null,
 )
 
 /** One ambiguous title and the films it could be, for the review sheet. */
@@ -97,6 +98,7 @@ data class UiState(
   val resolveProgress: Pair<Int, Int>? = null,
   val traktState: TraktState = TraktState.Disconnected,
   val traktConfigured: Boolean = false,
+  val tmdbConfigured: Boolean = false,
   val message: String? = null,
   /** Films selected for a bulk action, entered with a long press. Empty means not selecting. */
   val selectedIds: Set<String> = emptySet(),
@@ -123,9 +125,12 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
   private val selectedIds = MutableStateFlow<Set<String>>(emptySet())
   private val addSearchResults = MutableStateFlow<List<TitleLookup.Candidate>>(emptyList())
   private val addSearching = MutableStateFlow(false)
+  private val addSearchError = MutableStateFlow<String?>(null)
 
   val addSearchState: StateFlow<AddSearchState> =
-    combine(addSearchResults, addSearching) { results, searching -> AddSearchState(results, searching) }
+    combine(addSearchResults, addSearching, addSearchError) { results, searching, error ->
+      AddSearchState(results, searching, error)
+    }
       .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AddSearchState())
 
   private var traktJob: Job? = null
@@ -230,6 +235,7 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
           watchlistSort = content.filters.sort,
           traktState = transient.trakt,
           traktConfigured = repository.trakt.isConfigured,
+          tmdbConfigured = repository.tmdbConfigured,
           needsReview = review.entries,
           seriesCount = review.seriesCount,
           isResolving = transient.progress != null,
@@ -365,12 +371,19 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
     if (query.isBlank()) {
       addSearchResults.value = emptyList()
       addSearching.value = false
+      addSearchError.value = null
       return
     }
     addSearchJob =
       viewModelScope.launch {
         addSearching.value = true
-        addSearchResults.value = runCatching { repository.searchToAdd(query) }.getOrDefault(emptyList())
+        addSearchError.value = null
+        runCatching { repository.searchToAdd(query) }
+          .onSuccess { addSearchResults.value = it }
+          .onFailure {
+            addSearchResults.value = emptyList()
+            addSearchError.value = it.message ?: "Search failed"
+          }
         addSearching.value = false
       }
   }
@@ -393,6 +406,7 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
     addSearchJob?.cancel()
     addSearchResults.value = emptyList()
     addSearching.value = false
+    addSearchError.value = null
   }
 
   fun removeFilm(id: String) {
@@ -415,6 +429,14 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
     viewModelScope.launch {
       repository.setNotificationsMuted(itemId, muted)
       message.value = if (muted) "Muted — won't notify for this film" else "Unmuted"
+    }
+  }
+
+  /** Only notify for this film at a cinema carrying [tag]; null clears the restriction. */
+  fun setRequiredVenueTag(itemId: String, tag: String?) {
+    viewModelScope.launch {
+      repository.setRequiredVenueTag(itemId, tag)
+      message.value = if (tag != null) "Will only notify for $tag cinemas" else "Will notify for any cinema"
     }
   }
 

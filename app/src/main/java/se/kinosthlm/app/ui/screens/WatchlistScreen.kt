@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
@@ -18,13 +19,15 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -36,12 +39,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,6 +53,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import kotlinx.coroutines.launch
 import se.kinosthlm.app.notification.NotificationHelper
 import se.kinosthlm.app.ui.viewmodel.UiState
 import se.kinosthlm.app.ui.viewmodel.WatchlistEntry
@@ -84,9 +88,6 @@ fun WatchlistScreen(
   onCycleSort: () -> Unit,
   onStartSelecting: (String) -> Unit,
   onToggleSelected: (String) -> Unit,
-  onClearSelection: () -> Unit,
-  onRemoveSelected: () -> Unit,
-  onMuteSelected: (Boolean) -> Unit,
   modifier: Modifier = Modifier,
 ) {
   val listState = rememberLazyListState()
@@ -111,19 +112,7 @@ fun WatchlistScreen(
       contentPadding = PaddingValues(16.dp),
       verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-      if (uiState.isSelecting) {
-        item {
-          SelectionBar(
-            count = uiState.selectedIds.size,
-            onCancel = onClearSelection,
-            onRemove = onRemoveSelected,
-            onMute = { onMuteSelected(true) },
-            onUnmute = { onMuteSelected(false) },
-          )
-        }
-      } else {
-        item { SyncWidget(uiState, onSync, onOpenSources) }
-      }
+      item { SyncWidget(uiState, onSync, onOpenSources) }
 
       if (uiState.needsReview.isNotEmpty()) {
         item { ReviewBanner(count = uiState.needsReview.size, onReview = onReview) }
@@ -162,6 +151,20 @@ fun WatchlistScreen(
             AssistChip(
               onClick = onCycleSort,
               label = { Text(uiState.watchlistSort.label()) },
+              leadingIcon = {
+                Icon(
+                  Icons.AutoMirrored.Filled.Sort,
+                  contentDescription = null,
+                  modifier = Modifier.size(18.dp),
+                )
+              },
+              border = null,
+              colors =
+                AssistChipDefaults.assistChipColors(
+                  containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                  labelColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                  leadingIconContentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                ),
               modifier = Modifier.testTag("sort_watchlist"),
             )
             AssistChip(
@@ -202,34 +205,26 @@ fun WatchlistScreen(
         }
       }
 
+      // Films with a current showing sort to the top; each gets a colored border instead of a
+      // wrapping box, so it reads as "this one matters" without a second nested card look.
       val showingNow = uiState.watchlist.filter { it.nextScreening != null }
       val rest = uiState.watchlist.filter { it.nextScreening == null }
-
-      if (showingNow.isNotEmpty() && rest.isNotEmpty()) {
-        // Visually separate what actually has a showing from the rest of the mirrored list,
-        // rather than making the user scan the whole thing to see what is worth acting on.
-        item {
-          OutlinedCard(
-            Modifier.fillMaxWidth().testTag("showing_now_group"),
-            colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface),
-          ) {
-            Column(
-              Modifier.padding(8.dp),
-              verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-              for (entry in showingNow) {
-                renderCard(entry)
-              }
-            }
-          }
-        }
-        items(rest, key = { it.item.id }) { entry -> renderCard(entry) }
-      } else {
-        items(uiState.watchlist, key = { it.item.id }) { entry -> renderCard(entry) }
-      }
+      items(showingNow + rest, key = { it.item.id }) { entry -> renderCard(entry) }
     }
 
     VerticalScrollbar(listState, modifier = Modifier.padding(vertical = 16.dp, horizontal = 2.dp))
+
+    // Only past the first screenful — the widget and filters are already a "top" the user can
+    // see without help.
+    if (listState.firstVisibleItemIndex > 0) {
+      val scope = rememberCoroutineScope()
+      SmallFloatingActionButton(
+        onClick = { scope.launch { listState.animateScrollToItem(0) } },
+        modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp).testTag("scroll_to_top"),
+      ) {
+        Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Scroll to top")
+      }
+    }
   }
 }
 
@@ -247,7 +242,7 @@ private fun SyncWidget(uiState: UiState, onSync: () -> Unit, onOpenSources: () -
       Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
           Text(
-            "${uiState.watchlist.size} films watched",
+            "${uiState.watchlist.size} films tracked",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
           )
@@ -321,55 +316,6 @@ private fun SyncWidget(uiState: UiState, onSync: () -> Unit, onOpenSources: () -
   }
 }
 
-/**
- * Replaces the sync widget while films are selected — a Gmail-style contextual bar for bulk
- * actions. Mute/unmute set an explicit state on every selected film rather than toggling each
- * one's own, since a mixed selection has no single "current" state to flip.
- */
-@Composable
-private fun SelectionBar(
-  count: Int,
-  onCancel: () -> Unit,
-  onRemove: () -> Unit,
-  onMute: () -> Unit,
-  onUnmute: () -> Unit,
-) {
-  Card(
-    Modifier.fillMaxWidth().testTag("selection_bar"),
-    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-  ) {
-    Column(Modifier.padding(16.dp)) {
-      Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(
-          "$count selected",
-          style = MaterialTheme.typography.titleMedium,
-          fontWeight = FontWeight.SemiBold,
-          modifier = Modifier.weight(1f),
-          color = MaterialTheme.colorScheme.onSecondaryContainer,
-        )
-        TextButton(onClick = onCancel, modifier = Modifier.testTag("cancel_selection")) {
-          Text("Cancel")
-        }
-      }
-      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(onClick = onMute, modifier = Modifier.testTag("mute_selected")) {
-          Text("Mute")
-        }
-        OutlinedButton(onClick = onUnmute, modifier = Modifier.testTag("unmute_selected")) {
-          Text("Unmute")
-        }
-        OutlinedButton(
-          onClick = onRemove,
-          colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-          modifier = Modifier.testTag("remove_selected"),
-        ) {
-          Text("Remove")
-        }
-      }
-    }
-  }
-}
-
 @Composable
 private fun ReviewBanner(count: Int, onReview: () -> Unit) {
   Card(
@@ -419,6 +365,12 @@ private fun WatchlistCard(
       )
       .testTag("watchlist_item_${entry.item.id}"),
     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+    border =
+      if (entry.nextScreening != null) {
+        BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+      } else {
+        null
+      },
   ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
       if (isSelectionMode) {

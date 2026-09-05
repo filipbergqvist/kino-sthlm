@@ -48,6 +48,9 @@ private constructor(
   private val resolver = TitleResolver()
   private val lookup = TitleLookup()
 
+  /** False when this build has no TMDB key — identification, posters and manual add all need it. */
+  val tmdbConfigured: Boolean get() = lookup.isConfigured
+
   val watchlist: Flow<List<WatchlistItem>> = database.watchlistDao().observeAll()
   val upcomingScreenings: Flow<List<Screening>> = database.screeningDao().observeUpcoming()
   val cinemas: Flow<List<Cinema>> = database.cinemaDao().observeAll()
@@ -114,21 +117,32 @@ private constructor(
    */
   suspend fun searchToAdd(input: String): List<TitleLookup.Candidate> =
     withContext(Dispatchers.IO) {
+      if (!lookup.isConfigured) {
+        error(
+          "This build has no TMDB API key, so films cannot be identified. " +
+            "See the README's \"API keys\" section."
+        )
+      }
+
       val trimmed = input.trim()
       if (trimmed.isEmpty()) return@withContext emptyList()
 
       TitleLookup.extractImdbId(trimmed)?.let { imdbId ->
-        return@withContext listOfNotNull(lookup.lookupByImdbId(imdbId))
+        return@withContext listOfNotNull(
+          lookup.lookupByImdbId(imdbId) ?: error("IMDb has no title with the id $imdbId.")
+        )
       }
       TitleLookup.extractTmdbId(trimmed)?.let { tmdbId ->
-        return@withContext listOfNotNull(lookup.fetchMovieDetails(tmdbId))
+        return@withContext listOfNotNull(
+          lookup.fetchMovieDetails(tmdbId) ?: error("TMDB has no title with the id $tmdbId.")
+        )
       }
 
       val yearMatch = Regex("""^(.*?)[\s,(]+(\d{4})\)?$""").find(trimmed)
       val title = yearMatch?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() } ?: trimmed
       val year = yearMatch?.groupValues?.get(2)?.toIntOrNull()
 
-      val films = runCatching { lookup.lookup(title) }.getOrNull()?.films ?: return@withContext emptyList()
+      val films = lookup.lookup(title).films
       val narrowed =
         year
           ?.let { y -> films.filter { it.year != null && kotlin.math.abs(it.year - y) <= 1 } }
@@ -183,6 +197,10 @@ private constructor(
   /** Keep matching and showing this film, but never push a notification for it. */
   suspend fun setNotificationsMuted(itemId: String, muted: Boolean) =
     withContext(Dispatchers.IO) { database.watchlistDao().setMuted(itemId, muted) }
+
+  /** Only notify for this film at a cinema carrying [tag] (see [Cinema.tagList]); null means any. */
+  suspend fun setRequiredVenueTag(itemId: String, tag: String?) =
+    withContext(Dispatchers.IO) { database.watchlistDao().setRequiredVenueTag(itemId, tag) }
 
   // --- Identifying titles ---
 
@@ -448,11 +466,21 @@ private constructor(
 
       // 6. Notify about showings the user has not been told about yet.
       val mutedIds = currentWatchlist.filter { it.notificationsMuted }.map { it.id }.toSet()
+      val requiredTagByItem = currentWatchlist.mapNotNull { item ->
+        item.requiredVenueTag?.let { item.id to it }
+      }.toMap()
+      val cinemasById = enabled.associateBy { it.id }
       val alreadyNotified = database.notificationDao().notifiedIds().toSet()
       val fresh = matched.filter { it.id !in alreadyNotified }
       // A muted film's screenings still count as "seen" so unmuting it later does not replay
-      // everything found while it was muted.
+      // everything found while it was muted. Same for a venue-tag mismatch: the screening is
+      // real and shown, it just does not push, so seeing it later at the right kind of cinema
+      // still needs to notify.
       val toNotify = fresh.filterNot { it.watchlistMovieId in mutedIds }
+        .filter { screening ->
+          val requiredTag = requiredTagByItem[screening.watchlistMovieId] ?: return@filter true
+          requiredTag in (cinemasById[screening.cinemaId]?.tagList ?: emptyList())
+        }
       var sent = 0
       if (toNotify.isNotEmpty() && settings.notificationsEnabled.first()) {
         onStep("Sending notifications…")

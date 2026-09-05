@@ -42,9 +42,9 @@ fun ScheduleScreen(
 ) {
   Column(modifier.fillMaxWidth()) {
     FlowRow(
-      Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-      horizontalArrangement = Arrangement.spacedBy(8.dp),
-      verticalArrangement = Arrangement.spacedBy(8.dp),
+      Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+      horizontalArrangement = Arrangement.spacedBy(6.dp),
+      verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
       FilterChip(
         selected = uiState.cinemaFilter == null,

@@ -1,5 +1,6 @@
 package se.kinosthlm.app.ui.screens
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
@@ -93,6 +95,25 @@ private fun CinemaCard(
           color = MaterialTheme.colorScheme.onSurfaceVariant,
           modifier = Modifier.padding(top = 8.dp),
         )
+      }
+
+      if (cinema.tagList.isNotEmpty()) {
+        Row(
+          Modifier.padding(top = 6.dp),
+          horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+          for (tag in cinema.tagList) {
+            Text(
+              tag,
+              style = MaterialTheme.typography.labelSmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              modifier =
+                Modifier
+                  .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(6.dp))
+                  .padding(horizontal = 6.dp, vertical = 2.dp),
+            )
+          }
+        }
       }
 
       Row(

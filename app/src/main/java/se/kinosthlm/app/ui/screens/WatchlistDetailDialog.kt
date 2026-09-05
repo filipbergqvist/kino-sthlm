@@ -23,6 +23,7 @@ import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -38,6 +39,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
+import se.kinosthlm.app.data.model.Cinema
 import se.kinosthlm.app.ui.viewmodel.WatchlistEntry
 
 /**
@@ -52,6 +54,7 @@ fun WatchlistDetailDialog(
   onRemove: (String) -> Unit,
   onTogglePin: (String, Boolean) -> Unit,
   onToggleMute: (String, Boolean) -> Unit,
+  onSetRequiredVenueTag: (String, String?) -> Unit,
   onDismiss: () -> Unit,
 ) {
   val item = entry.item
@@ -74,21 +77,31 @@ fun WatchlistDetailDialog(
         }
 
         Column(Modifier.padding(20.dp)) {
-          Row(verticalAlignment = Alignment.Top) {
-            Text(
-              item.title,
-              style = MaterialTheme.typography.headlineSmall,
-              fontWeight = FontWeight.Bold,
-              modifier = Modifier.weight(1f, fill = false),
-            )
-            Spacer(Modifier.width(8.dp))
+          Text(
+            item.title,
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.fillMaxWidth(),
+          )
+          Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.weight(1f)) {
+              watchlistDescriptor(item, entry.sources)?.let { descriptor ->
+                Text(
+                  descriptor,
+                  style = MaterialTheme.typography.bodySmall,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+              }
+              SourceTags(entry.sources, modifier = Modifier.padding(top = 6.dp))
+            }
             IconButton(
               onClick = { onToggleMute(item.id, !entry.isMuted) },
-              modifier = Modifier.testTag("toggle_mute_${item.id}"),
+              modifier = Modifier.size(36.dp).testTag("toggle_mute_${item.id}"),
             ) {
               Icon(
                 if (entry.isMuted) Icons.Default.NotificationsOff else Icons.Outlined.Notifications,
                 contentDescription = if (entry.isMuted) "Unmute notifications" else "Mute notifications for this film",
+                modifier = Modifier.size(20.dp),
                 tint =
                   if (entry.isMuted) MaterialTheme.colorScheme.error
                   else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -96,25 +109,44 @@ fun WatchlistDetailDialog(
             }
             IconButton(
               onClick = { onTogglePin(item.id, !entry.isPinned) },
-              modifier = Modifier.testTag("toggle_pin_${item.id}"),
+              modifier = Modifier.size(36.dp).testTag("toggle_pin_${item.id}"),
             ) {
               Icon(
                 if (entry.isPinned) Icons.Default.PushPin else Icons.Outlined.PushPin,
                 contentDescription = if (entry.isPinned) "Unpin" else "Pin so it stays even if removed upstream",
+                modifier = Modifier.size(20.dp),
                 tint =
                   if (entry.isPinned) MaterialTheme.colorScheme.primary
                   else MaterialTheme.colorScheme.onSurfaceVariant,
               )
             }
           }
-          watchlistDescriptor(item, entry.sources)?.let { descriptor ->
-            Text(
-              descriptor,
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
+
+          Spacer(Modifier.height(16.dp))
+          Text(
+            "Notify for",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+          Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.padding(top = 4.dp).testTag("venue_tag_row_${item.id}"),
+          ) {
+            FilterChip(
+              selected = item.requiredVenueTag == null,
+              onClick = { onSetRequiredVenueTag(item.id, null) },
+              label = { Text("Any cinema") },
+              modifier = Modifier.testTag("venue_tag_any_${item.id}"),
             )
+            for (tag in Cinema.ALL_TAGS) {
+              FilterChip(
+                selected = item.requiredVenueTag == tag,
+                onClick = { onSetRequiredVenueTag(item.id, tag) },
+                label = { Text(tag) },
+                modifier = Modifier.testTag("venue_tag_${tag}_${item.id}"),
+              )
+            }
           }
-          SourceTags(entry.sources, modifier = Modifier.padding(top = 6.dp))
 
           Spacer(Modifier.height(12.dp))
           Text(

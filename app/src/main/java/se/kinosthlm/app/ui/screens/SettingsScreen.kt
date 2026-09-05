@@ -156,11 +156,20 @@ fun SettingsScreen(
           // instead of the sync chipping away at them a hundred at a time.
           OutlinedButton(
             onClick = onResolveTitles,
-            enabled = !uiState.isResolving,
+            enabled = !uiState.isResolving && uiState.tmdbConfigured,
             modifier = Modifier.testTag("resolve_titles"),
           ) {
             Text(if (uiState.isResolving) "Identifying…" else "Identify titles")
           }
+        }
+        if (!uiState.tmdbConfigured) {
+          Text(
+            "No TMDB API key in this build — titles, posters, descriptions and manual add all " +
+              "need one. See the README's \"API keys\" section.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+            modifier = Modifier.padding(top = 8.dp).testTag("tmdb_not_configured"),
+          )
         }
       }
     }

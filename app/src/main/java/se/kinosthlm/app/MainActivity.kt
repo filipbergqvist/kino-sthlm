@@ -18,10 +18,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Business
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EventSeat
 import androidx.compose.material.icons.filled.LocalActivity
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CircularProgressIndicator
@@ -134,33 +138,67 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
     modifier = Modifier.fillMaxSize(),
     snackbarHost = { SnackbarHost(snackbar) },
     topBar = {
-      TopAppBar(
-        title = {
-          Column {
-            Text("KinoSthlm", style = MaterialTheme.typography.titleMedium)
-            Text(
-              uiState.lastSyncSummary.ifBlank { "Stockholm cinema watch" },
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-          }
-        },
-        actions = {
-          if (uiState.isSyncing) {
-            CircularProgressIndicator(
-              Modifier.padding(end = 16.dp).size(20.dp),
-              strokeWidth = 2.dp,
-            )
-          } else {
+      if (uiState.isSelecting) {
+        TopAppBar(
+          title = { Text("${uiState.selectedIds.size} selected") },
+          navigationIcon = {
             IconButton(
-              onClick = { viewModel.sync() },
-              modifier = Modifier.testTag("refresh"),
+              onClick = { viewModel.clearSelection() },
+              modifier = Modifier.testTag("cancel_selection"),
             ) {
-              Icon(Icons.Default.Refresh, contentDescription = "Sync now")
+              Icon(Icons.Default.Close, contentDescription = "Cancel selection")
             }
-          }
-        },
-      )
+          },
+          actions = {
+            IconButton(
+              onClick = { viewModel.muteSelected(true) },
+              modifier = Modifier.testTag("mute_selected"),
+            ) {
+              Icon(Icons.Default.NotificationsOff, contentDescription = "Mute selected")
+            }
+            IconButton(
+              onClick = { viewModel.muteSelected(false) },
+              modifier = Modifier.testTag("unmute_selected"),
+            ) {
+              Icon(Icons.Outlined.Notifications, contentDescription = "Unmute selected")
+            }
+            IconButton(
+              onClick = { viewModel.removeSelected() },
+              modifier = Modifier.testTag("remove_selected"),
+            ) {
+              Icon(Icons.Default.Delete, contentDescription = "Remove selected")
+            }
+          },
+        )
+      } else {
+        TopAppBar(
+          title = {
+            Column {
+              Text("KinoSthlm", style = MaterialTheme.typography.titleMedium)
+              Text(
+                uiState.lastSyncSummary.ifBlank { "Stockholm cinema watch" },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+              )
+            }
+          },
+          actions = {
+            if (uiState.isSyncing) {
+              CircularProgressIndicator(
+                Modifier.padding(end = 16.dp).size(20.dp),
+                strokeWidth = 2.dp,
+              )
+            } else {
+              IconButton(
+                onClick = { viewModel.sync() },
+                modifier = Modifier.testTag("refresh"),
+              ) {
+                Icon(Icons.Default.Refresh, contentDescription = "Sync now")
+              }
+            }
+          },
+        )
+      }
     },
     bottomBar = {
       NavigationBar {
@@ -221,9 +259,6 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
             onCycleSort = { viewModel.cycleWatchlistSort() },
             onStartSelecting = { viewModel.startSelecting(it) },
             onToggleSelected = { viewModel.toggleSelected(it) },
-            onClearSelection = { viewModel.clearSelection() },
-            onRemoveSelected = { viewModel.removeSelected() },
-            onMuteSelected = { viewModel.muteSelected(it) },
           )
         1 ->
           ScheduleScreen(
@@ -296,6 +331,7 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
       onRemove = { viewModel.removeFilm(it) },
       onTogglePin = { id, pinned -> viewModel.togglePin(id, pinned) },
       onToggleMute = { id, muted -> viewModel.toggleMute(id, muted) },
+      onSetRequiredVenueTag = { id, tag -> viewModel.setRequiredVenueTag(id, tag) },
       onDismiss = { detailEntryId = null },
     )
   }
