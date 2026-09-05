@@ -48,6 +48,14 @@ import coil.compose.AsyncImage
 import se.kinosthlm.app.notification.NotificationHelper
 import se.kinosthlm.app.ui.viewmodel.UiState
 import se.kinosthlm.app.ui.viewmodel.WatchlistEntry
+import se.kinosthlm.app.ui.viewmodel.WatchlistSort
+
+private fun WatchlistSort.label(): String =
+  when (this) {
+    WatchlistSort.ADDED -> "Recently added"
+    WatchlistSort.ALPHABETICAL -> "A–Z"
+    WatchlistSort.YEAR -> "Year"
+  }
 
 /**
  * The watchlist, mirrored from whatever the user already uses.
@@ -68,6 +76,7 @@ fun WatchlistScreen(
   onAddFilm: () -> Unit,
   onOpenDetail: (WatchlistEntry) -> Unit,
   onQueryChange: (String) -> Unit,
+  onCycleSort: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
   val listState = rememberLazyListState()
@@ -114,6 +123,11 @@ fun WatchlistScreen(
               onClick = onToggleShowingSoon,
               label = { Text("Showing soon") },
               modifier = Modifier.testTag("filter_showing_soon"),
+            )
+            AssistChip(
+              onClick = onCycleSort,
+              label = { Text(uiState.watchlistSort.label()) },
+              modifier = Modifier.testTag("sort_watchlist"),
             )
             AssistChip(
               onClick = onAddFilm,

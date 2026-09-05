@@ -217,6 +217,7 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
             onAddFilm = { showAddDialog = true },
             onOpenDetail = { detailEntryId = it.item.id },
             onQueryChange = { viewModel.setWatchlistQuery(it) },
+            onCycleSort = { viewModel.cycleWatchlistSort() },
           )
         1 ->
           ScheduleScreen(
