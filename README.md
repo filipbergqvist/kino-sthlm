@@ -1,5 +1,10 @@
 # KinoSthlm
 
+[![Build](https://github.com/filipbergqvist/kino-sthlm/actions/workflows/build.yml/badge.svg)](https://github.com/filipbergqvist/kino-sthlm/actions/workflows/build.yml)
+[![Cinema source canary](https://github.com/filipbergqvist/kino-sthlm/actions/workflows/canary.yml/badge.svg)](https://github.com/filipbergqvist/kino-sthlm/actions/workflows/canary.yml)
+[![Latest release](https://img.shields.io/github/v/release/filipbergqvist/kino-sthlm)](https://github.com/filipbergqvist/kino-sthlm/releases/latest)
+[![License: MIT](https://img.shields.io/github/license/filipbergqvist/kino-sthlm)](LICENSE)
+
 Watches Stockholm cinema schedules for films on your watchlist and tells you the moment one is
 booked in — early enough that you still get good seats.
 
