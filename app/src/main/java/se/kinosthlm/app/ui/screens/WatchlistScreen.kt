@@ -157,7 +157,7 @@ private fun SyncWidget(uiState: UiState, onSync: () -> Unit, onOpenSources: () -
                 val (done, total) = uiState.resolveProgress ?: (0 to 0)
                 if (total > 0) "Identifying titles… $done of $total" else "Identifying titles…"
               }
-              uiState.isSyncing -> "Checking cinemas…"
+              uiState.isSyncing -> uiState.syncStep ?: "Syncing…"
               uiState.lastSyncAt > 0L ->
                 "Last synced ${NotificationHelper.formatTime(uiState.lastSyncAt)}"
               else -> "Not synced yet"

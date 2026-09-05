@@ -279,7 +279,7 @@ private constructor(
    * Never throws: a failure in one cinema or provider is reported in [SyncReport.sourceResults]
    * so the UI can name it, while the rest of the sync still completes.
    */
-  suspend fun sync(): SyncReport =
+  suspend fun sync(onStep: (String) -> Unit = {}): SyncReport =
     withContext(Dispatchers.IO) {
       val startedAt = System.currentTimeMillis()
       seedCinemas()
@@ -288,6 +288,7 @@ private constructor(
       var imported = 0
       val results = mutableListOf<SourceResult>()
       if (trakt.isConnected()) {
+        onStep("Updating watchlist from Trakt…")
         runCatching { trakt.sync() }
           .onSuccess { items ->
             // Films dropped from Trakt lose their Trakt claim here, and vanish entirely unless
@@ -303,6 +304,7 @@ private constructor(
 
       // 2. Put ids and a film/series verdict on anything that arrived as a bare title. Capped
       // per run so a large first import spreads over a few syncs rather than one long stall.
+      onStep("Identifying titles…")
       runCatching { resolveTitles() }
         .onFailure { Log.d(TAG, "Title resolution skipped: ${it.message}") }
 
@@ -370,6 +372,7 @@ private constructor(
           results += SourceResult(sourceId, sourceId, error = "No adapter registered")
           continue
         }
+        onStep("Fetching ${source.label}…")
         runCatching { source.fetchScreenings(venues, currentWatchlist, from, to) }
           .onSuccess { found ->
             raw += found
@@ -387,6 +390,7 @@ private constructor(
       // watchlist by that id first — the "how we link" the board asked for — falling back to
       // title/year comparison for whatever does not resolve (no TMDB key, an unlisted title, or
       // a watchlist entry not yet identified).
+      onStep("Matching screenings…")
       val tmdbIdCache = resolveScreeningTmdbIds(raw)
       val matched =
         ScreeningMatcher.match(raw, currentWatchlist) { tmdbIdCache[it.tmdbCacheKey()] }
@@ -427,6 +431,7 @@ private constructor(
       val fresh = matched.filter { it.id !in alreadyNotified }
       var sent = 0
       if (fresh.isNotEmpty() && settings.notificationsEnabled.first()) {
+        onStep("Sending notifications…")
         notifications.notifyNewScreenings(fresh)
         sent = fresh.size
       }

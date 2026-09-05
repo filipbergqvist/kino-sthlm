@@ -59,6 +59,7 @@ data class UiState(
   val allScreenings: List<Screening> = emptyList(),
   val cinemas: List<Cinema> = emptyList(),
   val isSyncing: Boolean = false,
+  val syncStep: String? = null,
   val lastReport: SyncReport? = null,
   val lastSyncAt: Long = 0L,
   val lastSyncSummary: String = "",
@@ -86,6 +87,7 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
   private val settings = SettingsStore(application)
 
   private val isSyncing = MutableStateFlow(false)
+  private val syncStep = MutableStateFlow<String?>(null)
   private val lastReport = MutableStateFlow<SyncReport?>(null)
   private val cinemaFilter = MutableStateFlow<String?>(null)
   private val showingSoonOnly = MutableStateFlow(false)
@@ -115,13 +117,14 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
         ) { auto, interval, notifications, lastAt, summary ->
           Prefs(auto, interval, notifications, lastAt, summary)
         },
-        combine(isSyncing, lastReport, traktState, message, resolveProgress) {
-          syncing,
-          report,
-          trakt,
-          msg,
-          progress ->
-          Transient(syncing, report, trakt, msg, progress)
+        combine(
+          combine(isSyncing, syncStep) { syncing, step -> syncing to step },
+          lastReport,
+          traktState,
+          message,
+          resolveProgress,
+        ) { sync, report, trakt, msg, progress ->
+          Transient(sync.first, sync.second, report, trakt, msg, progress)
         },
         combine(repository.needingReview, repository.reviewCandidates, repository.seriesCount) {
           review,
@@ -156,6 +159,7 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
           allScreenings = content.screenings,
           cinemas = content.cinemas,
           isSyncing = transient.syncing,
+          syncStep = transient.step,
           lastReport = transient.report,
           lastSyncAt = prefs.lastSyncAt,
           lastSyncSummary = prefs.summary,
@@ -195,13 +199,14 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
     viewModelScope.launch {
       isSyncing.value = true
       try {
-        val report = repository.sync()
+        val report = repository.sync { step -> syncStep.value = step }
         lastReport.value = report
         message.value = report.statusMessage
       } catch (error: Exception) {
         message.value = "Sync failed: ${error.message}"
       } finally {
         isSyncing.value = false
+        syncStep.value = null
       }
     }
   }
@@ -402,6 +407,7 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
 
   private data class Transient(
     val syncing: Boolean,
+    val step: String?,
     val report: SyncReport?,
     val trakt: TraktState,
     val message: String?,
