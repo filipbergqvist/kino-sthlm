@@ -33,6 +33,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -167,8 +168,34 @@ fun WatchlistScreen(
         }
       }
 
-      items(uiState.watchlist, key = { it.item.id }) { entry ->
-        WatchlistCard(entry = entry, onOpenBooking = onOpenBooking, onClick = { onOpenDetail(entry) })
+      val showingNow = uiState.watchlist.filter { it.nextScreening != null }
+      val rest = uiState.watchlist.filter { it.nextScreening == null }
+
+      if (showingNow.isNotEmpty() && rest.isNotEmpty()) {
+        // Visually separate what actually has a showing from the rest of the mirrored list,
+        // rather than making the user scan the whole thing to see what is worth acting on.
+        item {
+          OutlinedCard(
+            Modifier.fillMaxWidth().testTag("showing_now_group"),
+            colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+          ) {
+            Column(
+              Modifier.padding(8.dp),
+              verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+              for (entry in showingNow) {
+                WatchlistCard(entry = entry, onOpenBooking = onOpenBooking, onClick = { onOpenDetail(entry) })
+              }
+            }
+          }
+        }
+        items(rest, key = { it.item.id }) { entry ->
+          WatchlistCard(entry = entry, onOpenBooking = onOpenBooking, onClick = { onOpenDetail(entry) })
+        }
+      } else {
+        items(uiState.watchlist, key = { it.item.id }) { entry ->
+          WatchlistCard(entry = entry, onOpenBooking = onOpenBooking, onClick = { onOpenDetail(entry) })
+        }
       }
     }
 
