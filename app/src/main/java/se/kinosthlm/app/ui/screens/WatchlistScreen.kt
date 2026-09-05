@@ -17,9 +17,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -28,8 +30,10 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -63,6 +67,7 @@ fun WatchlistScreen(
   onReview: () -> Unit,
   onAddFilm: () -> Unit,
   onOpenDetail: (WatchlistEntry) -> Unit,
+  onQueryChange: (String) -> Unit,
   modifier: Modifier = Modifier,
 ) {
   val listState = rememberLazyListState()
@@ -80,7 +85,24 @@ fun WatchlistScreen(
         item { ReviewBanner(count = uiState.needsReview.size, onReview = onReview) }
       }
 
-      if (uiState.watchlist.isNotEmpty()) {
+      if (uiState.hasFilms) {
+        item {
+          OutlinedTextField(
+            value = uiState.watchlistQuery,
+            onValueChange = onQueryChange,
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp).testTag("watchlist_search"),
+            placeholder = { Text("Search your watchlist") },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+            trailingIcon = {
+              if (uiState.watchlistQuery.isNotEmpty()) {
+                IconButton(onClick = { onQueryChange("") }) {
+                  Icon(Icons.Default.Close, contentDescription = "Clear search")
+                }
+              }
+            },
+            singleLine = true,
+          )
+        }
         item {
           Row(
             Modifier.fillMaxWidth().padding(top = 4.dp),
@@ -113,13 +135,19 @@ fun WatchlistScreen(
         item {
           EmptyState(
             title =
-              if (uiState.showingSoonOnly) "Nothing scheduled yet" else "No films synced yet",
+              when {
+                uiState.watchlistQuery.isNotEmpty() -> "No matches"
+                uiState.showingSoonOnly -> "Nothing scheduled yet"
+                else -> "No films synced yet"
+              },
             body =
-              if (uiState.showingSoonOnly) {
-                "None of your films have a Stockholm screening in the window yet. " +
-                  "You will get a notification the moment one is announced."
-              } else {
-                "Connect Trakt or import a watchlist export to get started."
+              when {
+                uiState.watchlistQuery.isNotEmpty() ->
+                  "Nothing in your watchlist matches \"${uiState.watchlistQuery}\"."
+                uiState.showingSoonOnly ->
+                  "None of your films have a Stockholm screening in the window yet. " +
+                    "You will get a notification the moment one is announced."
+                else -> "Connect Trakt or import a watchlist export to get started."
               },
           )
         }

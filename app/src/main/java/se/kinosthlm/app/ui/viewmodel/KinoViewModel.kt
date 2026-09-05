@@ -61,6 +61,8 @@ data class UiState(
   /** Every upcoming screening, unfiltered. The filter chips need this or they vanish on use. */
   val allScreenings: List<Screening> = emptyList(),
   val cinemas: List<Cinema> = emptyList(),
+  /** Whether any matchable film is synced at all, independent of the search box or filter chip. */
+  val hasFilms: Boolean = false,
   val isSyncing: Boolean = false,
   val syncStep: String? = null,
   val lastReport: SyncReport? = null,
@@ -71,6 +73,7 @@ data class UiState(
   val notificationsEnabled: Boolean = true,
   val cinemaFilter: String? = null,
   val showingSoonOnly: Boolean = false,
+  val watchlistQuery: String = "",
   /** Ambiguous titles waiting for the user to pick the right film. */
   val needsReview: List<ReviewEntry> = emptyList(),
   /** TV series found in the watchlist; hidden from the list because they never play in cinemas. */
@@ -94,6 +97,7 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
   private val lastReport = MutableStateFlow<SyncReport?>(null)
   private val cinemaFilter = MutableStateFlow<String?>(null)
   private val showingSoonOnly = MutableStateFlow(false)
+  private val watchlistQuery = MutableStateFlow("")
   private val traktState = MutableStateFlow<TraktState>(TraktState.Disconnected)
   private val message = MutableStateFlow<String?>(null)
   private val resolveProgress = MutableStateFlow<Pair<Int, Int>?>(null)
@@ -107,9 +111,11 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
           repository.upcomingScreenings,
           repository.cinemas,
           repository.watchlistSources,
-          combine(cinemaFilter, showingSoonOnly) { filter, soonOnly -> filter to soonOnly },
+          combine(cinemaFilter, showingSoonOnly, watchlistQuery) { filter, soonOnly, query ->
+            Triple(filter, soonOnly, query)
+          },
         ) { watchlist, screenings, cinemas, sources, filters ->
-          Content(watchlist, screenings, cinemas, sources, filters.first, filters.second)
+          Content(watchlist, screenings, cinemas, sources, filters.first, filters.second, filters.third)
         },
         combine(
           settings.autoSyncEnabled,
@@ -139,12 +145,12 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
       ) { content, prefs, transient, review ->
         val byMovie = content.screenings.groupBy { it.watchlistMovieId }
         val sourcesByItem = content.sources.groupBy { it.itemId }
+        // Series never play in cinemas, ambiguous titles would match the wrong film, and
+        // suppressed ones the user deleted. All three are handled elsewhere rather than
+        // cluttering the list.
+        val matchable = content.watchlist.filter { it.isMatchable }
         val entries =
-          content.watchlist
-            // Series never play in cinemas, ambiguous titles would match the wrong film, and
-            // suppressed ones the user deleted. All three are handled elsewhere rather than
-            // cluttering the list.
-            .filter { it.isMatchable }
+          matchable
             .map {
               WatchlistEntry(
                 item = it,
@@ -153,6 +159,11 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
               )
             }
             .let { if (content.soonOnly) it.filter { entry -> entry.nextScreening != null } else it }
+            .let { list ->
+              content.query.trim().takeIf { it.isNotEmpty() }?.let { query ->
+                list.filter { entry -> entry.item.title.contains(query, ignoreCase = true) }
+              } ?: list
+            }
 
         UiState(
           watchlist = entries,
@@ -161,6 +172,7 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
               ?: content.screenings,
           allScreenings = content.screenings,
           cinemas = content.cinemas,
+          hasFilms = matchable.isNotEmpty(),
           isSyncing = transient.syncing,
           syncStep = transient.step,
           lastReport = transient.report,
@@ -171,6 +183,7 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
           notificationsEnabled = prefs.notifications,
           cinemaFilter = content.filter,
           showingSoonOnly = content.soonOnly,
+          watchlistQuery = content.query,
           traktState = transient.trakt,
           traktConfigured = repository.trakt.isConfigured,
           needsReview = review.entries,
@@ -389,6 +402,10 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
     showingSoonOnly.value = !showingSoonOnly.value
   }
 
+  fun setWatchlistQuery(query: String) {
+    watchlistQuery.value = query
+  }
+
   fun sendTestNotification() {
     repository.sendTestNotification()
     message.value = "Test notification sent"
@@ -406,6 +423,7 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
     val sources: List<WatchlistSource>,
     val filter: String?,
     val soonOnly: Boolean,
+    val query: String,
   )
 
   private data class Prefs(
