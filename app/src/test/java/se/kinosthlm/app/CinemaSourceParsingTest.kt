@@ -115,17 +115,20 @@ class CinemaSourceParsingTest {
     }
   }
 
-  // --- Bio Rio: schema.org JSON-LD ---
+  // --- Bio Rio: server-rendered calendar page ---
 
   @Test
-  fun `bio rio reads screening events from json-ld`() {
+  fun `bio rio reads showtimes from the calendar page`() {
     val venue = cinema("bio_rio", "Bio Rio")
     val screenings = BioRioSource().parse(fixture("biorio_home.html"), venue)
 
-    assertTrue("expected ScreeningEvents", screenings.isNotEmpty())
+    assertTrue("expected showtimes", screenings.isNotEmpty())
     assertTrue(screenings.all { it.cinemaId == "bio_rio" })
     assertTrue(screenings.all { it.title.isNotBlank() })
     assertTrue(screenings.all { it.bookingUrl.startsWith("http") })
+    // The calendar spans months, unlike a short rolling window.
+    val months = screenings.map { it.startTime.atZone(SwedishDates.STOCKHOLM).monthValue }.toSet()
+    assertTrue("expected screenings across multiple months", months.size > 1)
   }
 
   // --- Biocafé Tellus: The Events Calendar REST API ---

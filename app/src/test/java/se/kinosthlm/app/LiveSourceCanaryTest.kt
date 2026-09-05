@@ -124,7 +124,7 @@ class LiveSourceCanaryTest {
         from = from,
         to = to,
       )
-    assertTrue("Bio Rio returned no screenings — JSON-LD may have changed", screenings.isNotEmpty())
+    assertTrue("Bio Rio returned no screenings — the calendar page may have changed", screenings.isNotEmpty())
     assertTrue(screenings.all { it.title.isNotBlank() })
   }
 
