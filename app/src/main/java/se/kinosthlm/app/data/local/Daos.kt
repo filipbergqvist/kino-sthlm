@@ -21,6 +21,9 @@ interface WatchlistDao {
 
   @Query("SELECT * FROM watchlist_items") suspend fun getAll(): List<WatchlistItem>
 
+  /** One row by id — the per-film poster fetch runs often enough not to want the whole table. */
+  @Query("SELECT * FROM watchlist_items WHERE id = :id") suspend fun getById(id: String): WatchlistItem?
+
   @Insert(onConflict = OnConflictStrategy.REPLACE)
   suspend fun insertAll(items: List<WatchlistItem>)
 

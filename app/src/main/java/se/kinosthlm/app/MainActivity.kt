@@ -20,8 +20,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.EventSeat
-import androidx.compose.material.icons.filled.LocalActivity
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -127,6 +127,11 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
     rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
       if (uri != null) viewModel.importCsv(uri, pendingCsvSource)
     }
+  val saveCsv =
+    rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) {
+      uri: Uri? ->
+      if (uri != null) viewModel.exportCsv(uri)
+    }
 
   val openUrl: (String) -> Unit = { url ->
     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) }
@@ -197,7 +202,7 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
         NavigationBarItem(
           selected = tab == 0,
           onClick = { tab = 0 },
-          icon = { Icon(Icons.Default.LocalActivity, contentDescription = null) },
+          icon = { Icon(Icons.Default.Bookmark, contentDescription = null) },
           label = { Text("Watchlist") },
           modifier = Modifier.testTag("tab_watchlist"),
         )
@@ -212,7 +217,7 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
                 }
               }
             ) {
-              Icon(Icons.Default.EventSeat, contentDescription = null)
+              Icon(Icons.Default.CalendarMonth, contentDescription = null)
             }
           },
           label = { Text("Schedule") },
@@ -249,7 +254,6 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
             onOpenDetail = { detailEntryId = it.item.id },
             onQueryChange = { viewModel.setWatchlistQuery(it) },
             onCycleSort = { viewModel.cycleWatchlistSort() },
-            onToggleSortDirection = { viewModel.toggleWatchlistSortDirection() },
             onStartSelecting = { viewModel.startSelecting(it) },
             onToggleSelected = { viewModel.toggleSelected(it) },
             onPosterNeeded = { viewModel.onPosterNeeded(it) },
@@ -281,6 +285,7 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
               pickCsv.launch(CSV_MIME_TYPES)
             },
             onImportImdbList = { showImdbListDialog = true },
+            onExportCsv = { saveCsv.launch("kinosthlm-watchlist.csv") },
             onSetAutoSync = { viewModel.setAutoSync(it) },
             onSetInterval = { viewModel.setSyncInterval(it) },
             onSetHorizon = { viewModel.setHorizonDays(it) },
@@ -300,6 +305,7 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
       searchState = addSearchState,
       onSearch = { viewModel.searchToAdd(it) },
       onAdd = { viewModel.addCandidate(it) },
+      onOpenLink = openUrl,
       onDismiss = {
         showAddDialog = false
         viewModel.clearAddSearch()
@@ -338,6 +344,7 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
       onChoose = { itemId, candidate -> viewModel.chooseCandidate(itemId, candidate) },
       onResolveByLink = { itemId, link -> viewModel.resolveByLink(itemId, link) },
       onRemove = { viewModel.removeFilm(it) },
+      onOpenLink = openUrl,
       onDismiss = { showReviewDialog = false },
     )
   }

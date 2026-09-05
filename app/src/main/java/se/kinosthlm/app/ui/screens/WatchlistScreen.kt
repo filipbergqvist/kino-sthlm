@@ -20,8 +20,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.NotificationsOff
@@ -35,6 +34,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -62,14 +62,6 @@ import se.kinosthlm.app.ui.viewmodel.UiState
 import se.kinosthlm.app.ui.viewmodel.WatchlistEntry
 import se.kinosthlm.app.ui.viewmodel.WatchlistSort
 
-/** Names the order you actually get, rather than the field plus a direction to decode. */
-private fun WatchlistSort.label(descending: Boolean): String =
-  when (this) {
-    WatchlistSort.ADDED -> if (descending) "Recently added" else "Added first"
-    WatchlistSort.ALPHABETICAL -> if (descending) "Z–A" else "A–Z"
-    WatchlistSort.YEAR -> if (descending) "Newest" else "Oldest"
-  }
-
 /**
  * The watchlist, mirrored from whatever the user already uses.
  *
@@ -90,7 +82,6 @@ fun WatchlistScreen(
   onOpenDetail: (WatchlistEntry) -> Unit,
   onQueryChange: (String) -> Unit,
   onCycleSort: () -> Unit,
-  onToggleSortDirection: () -> Unit,
   onStartSelecting: (String) -> Unit,
   onToggleSelected: (String) -> Unit,
   onPosterNeeded: (String) -> Unit,
@@ -125,6 +116,17 @@ fun WatchlistScreen(
         item { ReviewBanner(count = uiState.needsReview.size, onReview = onReview) }
       }
 
+      // Below the review banner rather than in the filter row, which it was making too wide.
+      if (uiState.seriesCount > 0) {
+        item {
+          Text(
+            "${uiState.seriesCount} TV series hidden",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+      }
+
       if (uiState.hasFilms) {
         item {
           OutlinedTextField(
@@ -155,11 +157,11 @@ fun WatchlistScreen(
               label = { Text("Showing soon") },
               modifier = Modifier.testTag("filter_showing_soon"),
             )
-            // Two controls rather than one six-state button: the chip picks what to sort by,
-            // the arrow flips it, and the arrow itself shows which way round you are.
+            // One chip naming the whole order, rather than a field plus a direction arrow: two
+            // controls plus "Add" made this row wide enough to wrap on a long label.
             AssistChip(
               onClick = onCycleSort,
-              label = { Text(uiState.watchlistSort.label(uiState.watchlistSortDescending)) },
+              label = { Text(uiState.watchlistSort.label) },
               leadingIcon = {
                 Icon(
                   Icons.AutoMirrored.Filled.Sort,
@@ -176,38 +178,6 @@ fun WatchlistScreen(
                 ),
               modifier = Modifier.testTag("sort_watchlist"),
             )
-            AssistChip(
-              onClick = onToggleSortDirection,
-              label = {
-                Icon(
-                  if (uiState.watchlistSortDescending) Icons.Default.ArrowDownward
-                  else Icons.Default.ArrowUpward,
-                  contentDescription =
-                    if (uiState.watchlistSortDescending) "Sorting descending, tap for ascending"
-                    else "Sorting ascending, tap for descending",
-                  modifier = Modifier.size(18.dp),
-                )
-              },
-              border = null,
-              colors =
-                AssistChipDefaults.assistChipColors(
-                  containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                  labelColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                ),
-              modifier = Modifier.testTag("sort_direction"),
-            )
-            AssistChip(
-              onClick = onAddFilm,
-              label = { Text("Add") },
-              modifier = Modifier.testTag("add_film"),
-            )
-            if (uiState.seriesCount > 0) {
-              Text(
-                "${uiState.seriesCount} TV series hidden",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-              )
-            }
           }
         }
       }
@@ -243,15 +213,24 @@ fun WatchlistScreen(
 
     VerticalScrollbar(listState, modifier = Modifier.padding(vertical = 16.dp, horizontal = 2.dp))
 
-    // Only past the first screenful — the widget and filters are already a "top" the user can
-    // see without help.
-    if (listState.firstVisibleItemIndex > 0) {
-      val scope = rememberCoroutineScope()
-      SmallFloatingActionButton(
-        onClick = { scope.launch { listState.animateScrollToItem(0) } },
-        modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp).testTag("scroll_to_top"),
-      ) {
-        Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Scroll to top")
+    // Add lives here rather than as a chip in the filter row, which was getting too wide to fit
+    // a long sort label. Scroll-to-top stacks above it, and only once there is somewhere to go.
+    val scope = rememberCoroutineScope()
+    Column(
+      Modifier.align(Alignment.BottomEnd).padding(16.dp),
+      horizontalAlignment = Alignment.CenterHorizontally,
+      verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+      if (listState.firstVisibleItemIndex > 0) {
+        SmallFloatingActionButton(
+          onClick = { scope.launch { listState.animateScrollToItem(0) } },
+          modifier = Modifier.testTag("scroll_to_top"),
+        ) {
+          Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Scroll to top")
+        }
+      }
+      FloatingActionButton(onClick = onAddFilm, modifier = Modifier.testTag("add_film")) {
+        Icon(Icons.Default.Add, contentDescription = "Add a film")
       }
     }
   }
@@ -271,7 +250,9 @@ private fun SyncWidget(uiState: UiState, onSync: () -> Unit, onOpenSources: () -
       Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
           Text(
-            "${uiState.watchlist.size} films tracked",
+            // The whole list, not the filtered view — "tracked" is about what the app is
+            // watching for, which a filter chip does not change.
+            "${uiState.trackedCount} films tracked",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
           )
@@ -320,6 +301,19 @@ private fun SyncWidget(uiState: UiState, onSync: () -> Unit, onOpenSources: () -
           uiState.lastSyncSummary,
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+
+      // Posters and identification quietly not happening looks exactly like a broken app, so
+      // when it is actually TMDB throttling a shared key, say so and point at the way out.
+      if (uiState.tmdbRateLimited) {
+        Spacer(Modifier.height(8.dp))
+        Text(
+          "TMDB is rate limiting this build's shared key, so posters and titles may lag. " +
+            "Adding your own key under Settings → TMDB avoids sharing the limit.",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.error,
+          modifier = Modifier.testTag("tmdb_rate_limited"),
         )
       }
 
@@ -403,7 +397,14 @@ private fun WatchlistCard(
       },
   ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-      WatchlistCardContent(entry, onOpenBooking, onPosterNeeded, Modifier.weight(1f))
+      // While selecting, the card is one big checkbox: the Tickets buttons inside it are easy to
+      // hit by accident and would send you off to a booking page mid-selection.
+      WatchlistCardContent(
+        entry = entry,
+        onOpenBooking = if (isSelectionMode) null else onOpenBooking,
+        onPosterNeeded = onPosterNeeded,
+        modifier = Modifier.weight(1f),
+      )
       // Trailing, not leading: a checkbox on the left shoves the poster and title sideways
       // every time selection mode turns on.
       if (isSelectionMode) {
@@ -420,7 +421,8 @@ private fun WatchlistCard(
 @Composable
 private fun WatchlistCardContent(
   entry: WatchlistEntry,
-  onOpenBooking: (String) -> Unit,
+  /** Null while multi-selecting, which renders the showing rows inert rather than hiding them. */
+  onOpenBooking: ((String) -> Unit)?,
   onPosterNeeded: (String) -> Unit,
   modifier: Modifier = Modifier,
 ) {
@@ -501,7 +503,7 @@ private fun WatchlistCardContent(
             listOfNotNull(screening.auditorium, screening.formatTag)
               .joinToString(" · ")
               .ifBlank { null },
-          onClick = { onOpenBooking(screening.bookingUrl) },
+          onClick = onOpenBooking?.let { open -> { open(screening.bookingUrl) } },
         )
       }
       if (entry.screenings.size > 3) {

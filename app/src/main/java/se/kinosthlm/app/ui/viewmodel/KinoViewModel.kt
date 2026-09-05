@@ -53,18 +53,19 @@ data class ReviewEntry(
   val candidates: List<TitleCandidate>,
 )
 
-/** How the watchlist is ordered. Newly added, alphabetical, or by release year. */
-enum class WatchlistSort {
-  ADDED,
-  ALPHABETICAL,
-  YEAR;
+/**
+ * How the watchlist is ordered — each direction is its own option rather than a field plus a
+ * separate up/down toggle, so one chip says exactly what you are looking at and the header row
+ * stays narrow enough not to wrap.
+ */
+enum class WatchlistSort(val label: String) {
+  ALPHABETICAL("A–Z"),
+  REVERSE_ALPHABETICAL("Z–A"),
+  NEWEST("Newest"),
+  OLDEST("Oldest"),
+  RECENTLY_ADDED("Recently added");
 
-  /**
-   * The direction that reads as "normal" for this field, applied when you switch to it: newest
-   * first for dates, A first for names. Flipping from there is one tap.
-   */
-  val defaultDescending: Boolean
-    get() = this != ALPHABETICAL
+  fun next(): WatchlistSort = entries[(ordinal + 1) % entries.size]
 }
 
 /** State of the Trakt device-code flow, driven from Settings. */
@@ -85,6 +86,8 @@ data class UiState(
   val cinemas: List<Cinema> = emptyList(),
   /** Whether any matchable film is synced at all, independent of the search box or filter chip. */
   val hasFilms: Boolean = false,
+  /** Everything being tracked, before any filter or search narrows [watchlist] down. */
+  val trackedCount: Int = 0,
   val isSyncing: Boolean = false,
   val syncStep: String? = null,
   val lastReport: SyncReport? = null,
@@ -97,8 +100,7 @@ data class UiState(
   val cinemaFilter: String? = null,
   val showingSoonOnly: Boolean = false,
   val watchlistQuery: String = "",
-  val watchlistSort: WatchlistSort = WatchlistSort.ADDED,
-  val watchlistSortDescending: Boolean = true,
+  val watchlistSort: WatchlistSort = WatchlistSort.RECENTLY_ADDED,
   /** Ambiguous titles waiting for the user to pick the right film. */
   val needsReview: List<ReviewEntry> = emptyList(),
   /** TV series found in the watchlist; hidden from the list because they never play in cinemas. */
@@ -108,6 +110,8 @@ data class UiState(
   val traktState: TraktState = TraktState.Disconnected,
   val traktConfigured: Boolean = false,
   val tmdbConfigured: Boolean = false,
+  /** TMDB has throttled us recently — worth saying, since the symptoms look like a broken app. */
+  val tmdbRateLimited: Boolean = false,
   /** The user's own TMDB key, if they set one. Blank means the build's key (if any) is used. */
   val tmdbKey: String = "",
   val message: String? = null,
@@ -129,8 +133,7 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
   private val cinemaFilter = MutableStateFlow<String?>(null)
   private val showingSoonOnly = MutableStateFlow(false)
   private val watchlistQuery = MutableStateFlow("")
-  private val watchlistSort = MutableStateFlow(WatchlistSort.ADDED)
-  private val watchlistSortDescending = MutableStateFlow(WatchlistSort.ADDED.defaultDescending)
+  private val watchlistSort = MutableStateFlow(WatchlistSort.RECENTLY_ADDED)
   private val traktState = MutableStateFlow<TraktState>(TraktState.Disconnected)
   private val message = MutableStateFlow<String?>(null)
   private val resolveProgress = MutableStateFlow<Pair<Int, Int>?>(null)
@@ -155,13 +158,12 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
           repository.upcomingScreenings,
           repository.cinemas,
           repository.watchlistSources,
-          combine(cinemaFilter, showingSoonOnly, watchlistQuery, watchlistSort, watchlistSortDescending) {
+          combine(cinemaFilter, showingSoonOnly, watchlistQuery, watchlistSort) {
             filter,
             soonOnly,
             query,
-            sort,
-            descending ->
-            Filters(filter, soonOnly, query, sort, descending)
+            sort ->
+            Filters(filter, soonOnly, query, sort)
           },
         ) { watchlist, screenings, cinemas, sources, filters ->
           Content(watchlist, screenings, cinemas, sources, filters)
@@ -233,13 +235,15 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
               } ?: list
             }
             .let { list ->
-              val ascending =
-                when (content.filters.sort) {
-                  WatchlistSort.ADDED -> list.sortedBy { it.item.addedAt }
-                  WatchlistSort.ALPHABETICAL -> list.sortedBy { it.item.title.lowercase() }
-                  WatchlistSort.YEAR -> list.sortedBy { it.item.year ?: 0 }
-                }
-              if (content.filters.sortDescending) ascending.reversed() else ascending
+              when (content.filters.sort) {
+                WatchlistSort.ALPHABETICAL -> list.sortedBy { it.item.title.lowercase() }
+                WatchlistSort.REVERSE_ALPHABETICAL ->
+                  list.sortedByDescending { it.item.title.lowercase() }
+                WatchlistSort.NEWEST -> list.sortedByDescending { it.item.year ?: 0 }
+                // Unknown years sink to the end rather than pretending to be the oldest films.
+                WatchlistSort.OLDEST -> list.sortedBy { it.item.year ?: Int.MAX_VALUE }
+                WatchlistSort.RECENTLY_ADDED -> list.sortedByDescending { it.item.addedAt }
+              }
             }
 
         UiState(
@@ -250,6 +254,7 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
           allScreenings = content.screenings,
           cinemas = content.cinemas,
           hasFilms = matchable.isNotEmpty(),
+          trackedCount = matchable.size,
           isSyncing = transient.syncing,
           syncStep = transient.step,
           lastReport = transient.report,
@@ -263,10 +268,10 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
           showingSoonOnly = content.filters.soonOnly,
           watchlistQuery = content.filters.query,
           watchlistSort = content.filters.sort,
-          watchlistSortDescending = content.filters.sortDescending,
           traktState = transient.trakt,
           traktConfigured = repository.trakt.isConfigured,
           tmdbConfigured = prefs.tmdbKey.isNotBlank() || repository.hasBuiltInTmdbKey,
+          tmdbRateLimited = repository.isTmdbRateLimited,
           tmdbKey = prefs.tmdbKey,
           needsReview = review.entries,
           seriesCount = review.seriesCount,
@@ -371,7 +376,11 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
             message.value = "Trakt code expired. Try again."
           }
         } catch (error: Exception) {
-          traktState.value = TraktState.Disconnected
+          // Only the initial code request can land here now — polling rides out network
+          // failures itself. Keep any code we did get on screen so the user can carry on with
+          // it rather than being sent back to a blank Connect button.
+          val pending = traktState.value as? TraktState.AwaitingCode
+          traktState.value = pending ?: TraktState.Disconnected
           message.value = "Trakt: ${error.message}"
         }
       }
@@ -379,6 +388,7 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
 
   fun cancelTraktConnect() {
     traktJob?.cancel()
+    repository.trakt.cancelPendingAuthorization()
     traktState.value = TraktState.Disconnected
   }
 
@@ -397,6 +407,18 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
         sync()
       } catch (error: Exception) {
         message.value = error.message ?: "Import failed"
+      }
+    }
+  }
+
+  /** Write the watchlist out as a Trakt-importable CSV at the location the user picked. */
+  fun exportCsv(uri: Uri) {
+    viewModelScope.launch {
+      try {
+        val count = repository.exportCsv(uri)
+        message.value = "Exported $count films"
+      } catch (error: Exception) {
+        message.value = error.message ?: "Export failed"
       }
     }
   }
@@ -602,23 +624,9 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
     watchlistQuery.value = query
   }
 
-  /**
-   * Cycles Added → A–Z → Year → Added, for the sort chip in the watchlist header. Each field
-   * arrives in its natural direction; flipping it is the separate arrow button.
-   */
+  /** Steps the sort chip through A–Z, Z–A, Newest, Oldest, Recently added and back round. */
   fun cycleWatchlistSort() {
-    val next =
-      when (watchlistSort.value) {
-        WatchlistSort.ADDED -> WatchlistSort.ALPHABETICAL
-        WatchlistSort.ALPHABETICAL -> WatchlistSort.YEAR
-        WatchlistSort.YEAR -> WatchlistSort.ADDED
-      }
-    watchlistSort.value = next
-    watchlistSortDescending.value = next.defaultDescending
-  }
-
-  fun toggleWatchlistSortDirection() {
-    watchlistSortDescending.value = !watchlistSortDescending.value
+    watchlistSort.value = watchlistSort.value.next()
   }
 
   fun sendTestNotification() {
@@ -636,7 +644,6 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
     val soonOnly: Boolean,
     val query: String,
     val sort: WatchlistSort,
-    val sortDescending: Boolean,
   )
 
   private data class Content(

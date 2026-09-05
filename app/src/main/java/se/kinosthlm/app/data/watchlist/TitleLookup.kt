@@ -36,6 +36,25 @@ class TitleLookup(
 
   val isConfigured: Boolean get() = apiKey.isNotBlank()
 
+  /**
+   * When TMDB last answered 429, or 0 if it never has.
+   *
+   * Worth surfacing rather than swallowing: a shared key can be rate limited by other people's
+   * installs entirely, and the symptom — posters and identification quietly not happening — is
+   * indistinguishable from the app being broken unless we say so.
+   */
+  @Volatile var lastRateLimitedAt: Long = 0L
+    private set
+
+  /** Every TMDB request goes through here, so nothing can be throttled without us noticing. */
+  private fun get(url: String): String =
+    try {
+      Http.getString(url)
+    } catch (error: Http.HttpStatusException) {
+      if (error.code == 429) lastRateLimitedAt = System.currentTimeMillis()
+      throw error
+    }
+
   /** What we learned about one title. */
   data class Result(
     val candidates: List<Candidate>,
@@ -81,7 +100,7 @@ class TitleLookup(
     val query = title.trim()
     if (query.isEmpty()) return@withContext Result(emptyList())
 
-    val json = Http.getString("$baseUrl/search/multi?query=${encode(query)}&include_adult=false&$auth")
+    val json = get("$baseUrl/search/multi?query=${encode(query)}&include_adult=false&$auth")
     val results = JSONObject(json).optJSONArray("results") ?: return@withContext Result(emptyList())
 
     val all =
@@ -141,7 +160,7 @@ class TitleLookup(
     require(isConfigured) { "No TMDB API key configured" }
     val id = extractImdbId(imdbId) ?: return@withContext null
 
-    val json = Http.getString("$baseUrl/find/$id?external_source=imdb_id&$auth")
+    val json = get("$baseUrl/find/$id?external_source=imdb_id&$auth")
     val root = JSONObject(json)
 
     root.optJSONArray("movie_results")?.optJSONObject(0)?.let { movie ->
@@ -164,7 +183,7 @@ class TitleLookup(
   suspend fun fetchMovieDetails(tmdbId: Int): Candidate? = withContext(Dispatchers.IO) {
     if (!isConfigured) return@withContext null
     runCatching {
-      val entry = JSONObject(Http.getString("$baseUrl/movie/$tmdbId?$auth"))
+      val entry = JSONObject(get("$baseUrl/movie/$tmdbId?$auth"))
       candidateOf(entry, forcedType = TYPE_MOVIE)
     }.getOrNull()
   }
@@ -174,7 +193,7 @@ class TitleLookup(
     if (candidate.imdbId != null || !candidate.isFilm) return@withContext candidate
     val imdbId =
       runCatching {
-        JSONObject(Http.getString("$baseUrl/movie/${candidate.tmdbId}/external_ids?$auth"))
+        JSONObject(get("$baseUrl/movie/${candidate.tmdbId}/external_ids?$auth"))
           .optString("imdb_id")
           .takeIf { it.startsWith("tt") }
       }

@@ -53,7 +53,7 @@ fun EmptyState(title: String, body: String, modifier: Modifier = Modifier) {
 
 /** One showing: time, venue, and whatever extra detail the cinema actually gave us. */
 @Composable
-fun ScreeningRow(when_: String, where: String, detail: String?, onClick: () -> Unit) {
+fun ScreeningRow(when_: String, where: String, detail: String?, onClick: (() -> Unit)?) {
   Row(
     Modifier.fillMaxWidth().padding(vertical = 2.dp),
     verticalAlignment = Alignment.CenterVertically,
@@ -66,7 +66,11 @@ fun ScreeningRow(when_: String, where: String, detail: String?, onClick: () -> U
         color = MaterialTheme.colorScheme.onSurfaceVariant,
       )
     }
-    TextButton(onClick = onClick) { Text("Tickets") }
+    // No onClick means the caller wants the row inert (multi-selection), so the button goes
+    // rather than sitting there looking tappable.
+    if (onClick != null) {
+      TextButton(onClick = onClick) { Text("Tickets") }
+    }
   }
 }
 

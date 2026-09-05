@@ -31,6 +31,44 @@ class CsvWatchlistImporterTest {
   }
 
   @Test
+  fun `takes imdb's word for it that a series is not a film`() {
+    // A real IMDb watchlist is full of series; believing the Title Type column keeps them out of
+    // the list, out of the review queue, and off TMDB entirely.
+    val csv =
+      """
+      Position,Const,Created,Modified,Description,Title,Original Title,URL,Title Type,IMDb Rating,Runtime (mins),Year,Genres,Num Votes,Release Date,Directors
+      1,tt0013442,2026-10-01,,,Nosferatu,Nosferatu,https://www.imdb.com/title/tt0013442/,Movie,7.9,94,1922,Horror,120000,1922-03-04,F.W. Murnau
+      2,tt9253284,2026-10-02,,,A Series,A Series,https://www.imdb.com/title/tt9253284/,TV Series,8.6,60,2022,Drama,285468,2022-09-21,
+      3,tt0000003,2026-10-03,,,A Mini Series,A Mini Series,https://www.imdb.com/title/tt0000003/,TV Mini Series,8.0,60,2021,Drama,100,2021-01-01,
+      4,tt0000004,2026-10-04,,,A TV Film,A TV Film,https://www.imdb.com/title/tt0000004/,TV Movie,7.0,90,1975,Drama,100,1975-01-01,
+      """
+        .trimIndent()
+
+    val items = parse(csv)
+
+    assertEquals(4, items.size)
+    assertEquals(WatchlistItem.TYPE_UNKNOWN, items[0].titleType)
+    assertEquals(WatchlistItem.TYPE_SERIES, items[1].titleType)
+    assertEquals(WatchlistItem.TYPE_SERIES, items[2].titleType)
+    // A TV movie is still a film, and does turn up in cinema retrospectives.
+    assertEquals(WatchlistItem.TYPE_UNKNOWN, items[3].titleType)
+    assertTrue(items[0].isMatchable)
+    assertTrue(!items[1].isMatchable)
+  }
+
+  @Test
+  fun `an export without a type column leaves everything for tmdb to classify`() {
+    val csv =
+      """
+      Const,Title,Year
+      tt0013442,Nosferatu,1922
+      """
+        .trimIndent()
+
+    assertEquals(WatchlistItem.TYPE_UNKNOWN, parse(csv).single().titleType)
+  }
+
+  @Test
   fun `handles commas and quotes inside a title`() {
     val csv =
       """

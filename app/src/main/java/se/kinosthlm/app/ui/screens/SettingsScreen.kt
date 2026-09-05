@@ -7,7 +7,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -23,7 +28,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import se.kinosthlm.app.notification.NotificationHelper
@@ -40,6 +47,7 @@ fun SettingsScreen(
   onImportImdbCsv: () -> Unit,
   onImportGoogleTvCsv: () -> Unit,
   onImportImdbList: () -> Unit,
+  onExportCsv: () -> Unit,
   onSetAutoSync: (Boolean) -> Unit,
   onSetInterval: (Long) -> Unit,
   onSetHorizon: (Long) -> Unit,
@@ -66,17 +74,38 @@ fun SettingsScreen(
             }
           }
           is TraktState.AwaitingCode -> {
+            val clipboard = LocalClipboardManager.current
             Text(
               "Go to ${state.url} and enter this code:",
               style = MaterialTheme.typography.bodyMedium,
             )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              // Selectable as well as copyable: eight characters is exactly long enough to
+              // mistype, and the code stays valid now, so it is worth getting onto the clipboard.
+              SelectionContainer {
+                Text(
+                  state.code,
+                  style = MaterialTheme.typography.headlineMedium,
+                  fontWeight = FontWeight.Bold,
+                  modifier = Modifier.padding(vertical = 8.dp).testTag("trakt_code"),
+                )
+              }
+              IconButton(
+                onClick = { clipboard.setText(AnnotatedString(state.code)) },
+                modifier = Modifier.testTag("copy_trakt_code"),
+              ) {
+                Icon(Icons.Default.ContentCopy, contentDescription = "Copy code")
+              }
+            }
             Text(
-              state.code,
-              style = MaterialTheme.typography.headlineMedium,
-              fontWeight = FontWeight.Bold,
-              modifier = Modifier.padding(vertical = 8.dp).testTag("trakt_code"),
+              "The code stays valid while you finish — losing signal will not change it.",
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+              Modifier.padding(top = 8.dp),
+              horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
               OutlinedButton(onClick = { onOpenUrl(state.url) }) { Text("Open trakt.tv") }
               TextButton(onClick = onCancelTrakt) { Text("Cancel") }
             }
@@ -110,6 +139,11 @@ fun SettingsScreen(
         }
         SettingRow("Google TV", "Import a Google Takeout CSV") {
           TextButton(onClick = onImportGoogleTvCsv) { Text("Import") }
+        }
+        SettingRow("Export", "A CSV in Trakt's import format") {
+          TextButton(onClick = onExportCsv, modifier = Modifier.testTag("export_csv")) {
+            Text("Export")
+          }
         }
       }
     }

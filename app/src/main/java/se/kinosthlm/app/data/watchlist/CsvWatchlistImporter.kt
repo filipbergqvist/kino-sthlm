@@ -20,6 +20,17 @@ object CsvWatchlistImporter {
   private val TITLE_KEYS = listOf("title", "primary title", "original title", "name", "movie")
   private val YEAR_KEYS = listOf("year", "release year", "release date")
   private val ID_KEYS = listOf("const", "imdb id", "imdbid", "tconst")
+  private val TYPE_KEYS = listOf("title type", "type")
+
+  /**
+   * IMDb's own words for things that are not films, from its `Title Type` column.
+   *
+   * A watchlist full of series is normal on IMDb, and taking IMDb's word for it here means they
+   * never reach TMDB to be identified — one less round trip each, and no series sitting in the
+   * review queue waiting to be told apart from a film that does not exist. "TV Movie" is
+   * deliberately absent: those do turn up in cinema retrospectives.
+   */
+  private val NON_FILM_TYPES = listOf("tv series", "tv mini", "tv episode", "video game", "podcast")
 
   /** An IMDb id occupying a whole cell, not a title that merely starts with "tt". */
   private val IMDB_ID_CELL = Regex("""^tt\d{5,}$""")
@@ -47,6 +58,9 @@ object CsvWatchlistImporter {
     val titleColumn = header.indexOfFirstIn(TITLE_KEYS) ?: 0
     val yearColumn = header.indexOfFirstIn(YEAR_KEYS)
     val idColumn = header.indexOfFirstIn(ID_KEYS)
+    // Guard against "Title Type" being mistaken for the title itself on an export that lacks a
+    // plain "Title" column.
+    val typeColumn = header.indexOfFirstIn(TYPE_KEYS)?.takeIf { it != titleColumn }
 
     return rows.drop(1)
       .mapNotNull { row ->
@@ -68,6 +82,9 @@ object CsvWatchlistImporter {
           Regex("tt\\d+").find(row.getOrNull(column).orEmpty())?.value
         }
 
+        val declaredType = typeColumn?.let { row.getOrNull(it)?.trim()?.lowercase() }.orEmpty()
+        val isSeries = NON_FILM_TYPES.any { declaredType.contains(it) }
+
         WatchlistItem(
           // No TMDB id at parse time — CSV rows only ever carry IMDb ids. TitleResolver
           // backfills the TMDB id afterwards and re-keys the row onto it.
@@ -75,6 +92,10 @@ object CsvWatchlistImporter {
           title = title,
           year = year,
           imdbId = imdbId,
+          // Only ever set to "series" here; an unrecognised or missing type stays UNKNOWN so
+          // TMDB still gets its say.
+          titleType =
+            if (isSeries) WatchlistItem.TYPE_SERIES else WatchlistItem.TYPE_UNKNOWN,
         )
       }
       .let(::separateRepeats)

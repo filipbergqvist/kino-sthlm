@@ -53,10 +53,59 @@ class TraktTokenStore(context: Context) {
     prefs.edit().clear().apply()
   }
 
+  // --- The device code being authorised right now ---
+
+  /**
+   * Remember the code we are waiting on, so a dropped connection — or leaving the app to type the
+   * code in a browser — does not throw it away and hand back a different one on the next tap.
+   * Trakt's codes stay valid for their full window regardless of what our process is doing.
+   */
+  fun savePendingCode(code: TraktProvider.DeviceCode) {
+    prefs.edit()
+      .putString(KEY_DEVICE_CODE, code.deviceCode)
+      .putString(KEY_USER_CODE, code.userCode)
+      .putString(KEY_VERIFY_URL, code.verificationUrl)
+      .putInt(KEY_CODE_INTERVAL, code.intervalSeconds)
+      .putLong(KEY_CODE_EXPIRES_AT, System.currentTimeMillis() + code.expiresInSeconds * 1000L)
+      .apply()
+  }
+
+  /** The pending code, or null once it has expired or been used. */
+  fun pendingCode(): TraktProvider.DeviceCode? {
+    val expiresAt = prefs.getLong(KEY_CODE_EXPIRES_AT, 0L)
+    val remainingMillis = expiresAt - System.currentTimeMillis()
+    if (remainingMillis <= 0) return null
+
+    val deviceCode = prefs.getString(KEY_DEVICE_CODE, null) ?: return null
+    val userCode = prefs.getString(KEY_USER_CODE, null) ?: return null
+    return TraktProvider.DeviceCode(
+      deviceCode = deviceCode,
+      userCode = userCode,
+      verificationUrl = prefs.getString(KEY_VERIFY_URL, null) ?: "https://trakt.tv/activate",
+      intervalSeconds = prefs.getInt(KEY_CODE_INTERVAL, 5),
+      expiresInSeconds = (remainingMillis / 1000).toInt(),
+    )
+  }
+
+  fun clearPendingCode() {
+    prefs.edit()
+      .remove(KEY_DEVICE_CODE)
+      .remove(KEY_USER_CODE)
+      .remove(KEY_VERIFY_URL)
+      .remove(KEY_CODE_INTERVAL)
+      .remove(KEY_CODE_EXPIRES_AT)
+      .apply()
+  }
+
   private companion object {
     const val KEY_ACCESS = "access_token"
     const val KEY_REFRESH = "refresh_token"
     const val KEY_EXPIRES_AT = "expires_at"
+    const val KEY_DEVICE_CODE = "device_code"
+    const val KEY_USER_CODE = "user_code"
+    const val KEY_VERIFY_URL = "verification_url"
+    const val KEY_CODE_INTERVAL = "code_interval"
+    const val KEY_CODE_EXPIRES_AT = "code_expires_at"
     const val ONE_DAY_MILLIS = 24 * 60 * 60 * 1000L
   }
 }

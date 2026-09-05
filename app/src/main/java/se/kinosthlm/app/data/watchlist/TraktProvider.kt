@@ -1,6 +1,7 @@
 package se.kinosthlm.app.data.watchlist
 
 import android.content.Context
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -39,9 +40,18 @@ class TraktProvider(
 
   // --- Device flow ---
 
-  /** Step 1: ask Trakt for a code. Show [DeviceCode.userCode] and [DeviceCode.verificationUrl]. */
+  /**
+   * Step 1: ask Trakt for a code. Show [DeviceCode.userCode] and [DeviceCode.verificationUrl].
+   *
+   * A code already issued and still inside its window is reused rather than replaced. Otherwise
+   * every hiccup — or simply reopening Settings — would put a different code on screen than the
+   * one the user is halfway through typing at trakt.tv/activate.
+   */
   suspend fun requestDeviceCode(): DeviceCode = withContext(Dispatchers.IO) {
     require(isConfigured) { "No Trakt client id configured" }
+    val existing = tokens.pendingCode()
+    if (existing != null) return@withContext existing
+
     val response = post("$API/oauth/device/code", JSONObject().put("client_id", CLIENT_ID))
     DeviceCode(
       deviceCode = response.getString("device_code"),
@@ -50,6 +60,7 @@ class TraktProvider(
       intervalSeconds = response.optInt("interval", 5),
       expiresInSeconds = response.optInt("expires_in", 600),
     )
+      .also { tokens.savePendingCode(it) }
   }
 
   /**
@@ -57,6 +68,13 @@ class TraktProvider(
    *
    * Returns false if the code expired or the user denied it. Trakt requires that we respect the
    * interval it hands back; polling faster earns a 429 and a longer wait.
+   *
+   * Network failures during this window are *expected*, not fatal. The whole point of the device
+   * flow is that the user leaves to authorise somewhere else, and a backgrounded app on Android
+   * routinely loses DNS for a moment — Doze, Data Saver, a Wi-Fi handover. Treating one
+   * `UnknownHostException` as a failed connection is what threw the code away mid-authorisation
+   * and made the next attempt hand back a different one. So a failed poll is just another
+   * "not yet": back off a little and keep asking until the code genuinely expires.
    */
   suspend fun awaitAuthorization(code: DeviceCode): Boolean = withContext(Dispatchers.IO) {
     val deadline = System.currentTimeMillis() + code.expiresInSeconds * 1000L
@@ -76,30 +94,51 @@ class TraktProvider(
         .post(body.toString().toRequestBody(JSON))
         .build()
 
-      val outcome = Http.client.newCall(request).execute().use { response ->
-        when (response.code) {
-          200 -> {
-            tokens.save(JSONObject(response.body?.string().orEmpty()))
-            Outcome.AUTHORIZED
+      val outcome =
+        runCatching {
+          Http.client.newCall(request).execute().use { response ->
+            when (response.code) {
+              200 -> {
+                tokens.save(JSONObject(response.body?.string().orEmpty()))
+                Outcome.AUTHORIZED
+              }
+              // 400 means the user has not finished yet; keep waiting.
+              400 -> Outcome.PENDING
+              // Backing off is the documented remedy for polling too fast.
+              429 -> Outcome.SLOW_DOWN
+              // 404/410 expired, 409 already used, 418 denied.
+              else -> Outcome.FAILED
+            }
           }
-          // 400 means the user has not finished yet; keep waiting.
-          400 -> Outcome.PENDING
-          // Backing off is the documented remedy for polling too fast.
-          429 -> Outcome.SLOW_DOWN
-          // 404/410 expired, 409 already used, 418 denied.
-          else -> Outcome.FAILED
         }
-      }
+          .getOrElse { error ->
+            Log.d(TAG, "Trakt poll failed, will retry: ${error.message}")
+            Outcome.OFFLINE
+          }
 
       when (outcome) {
-        Outcome.AUTHORIZED -> return@withContext true
-        Outcome.FAILED -> return@withContext false
+        Outcome.AUTHORIZED -> {
+          tokens.clearPendingCode()
+          return@withContext true
+        }
+        Outcome.FAILED -> {
+          tokens.clearPendingCode()
+          return@withContext false
+        }
         Outcome.SLOW_DOWN -> intervalMillis += 1000L
+        // Ease off while there is nothing to talk to, but never past a ten-second cadence: the
+        // user may well be authorising right now and expects the screen to notice promptly.
+        Outcome.OFFLINE -> intervalMillis = (intervalMillis + 2000L).coerceAtMost(10_000L)
         Outcome.PENDING -> Unit
       }
     }
+    // Out of time rather than refused; the code is no longer usable either way.
+    tokens.clearPendingCode()
     false
   }
+
+  /** Forget a half-finished authorisation, so the next Connect starts cleanly. */
+  fun cancelPendingAuthorization() = tokens.clearPendingCode()
 
   fun disconnect() = tokens.clear()
 
@@ -177,7 +216,7 @@ class TraktProvider(
     }
   }
 
-  private enum class Outcome { AUTHORIZED, PENDING, SLOW_DOWN, FAILED }
+  private enum class Outcome { AUTHORIZED, PENDING, SLOW_DOWN, FAILED, OFFLINE }
 
   data class DeviceCode(
     val deviceCode: String,
@@ -188,6 +227,7 @@ class TraktProvider(
   )
 
   companion object {
+    private const val TAG = "TraktProvider"
     private const val API = "https://api.trakt.tv"
     private val JSON = "application/json".toMediaType()
 

@@ -41,11 +41,15 @@ object Http {
    * Throws on any non-2xx response. Sources must let this propagate rather than swallowing it —
    * a failed fetch has to surface as a visible error, never as silently missing screenings.
    */
+  /** Carries the status code, so callers can tell "rate limited" from "broken" and act on it. */
+  class HttpStatusException(val code: Int, url: String) :
+    java.io.IOException("HTTP $code for $url")
+
   fun getString(url: String, accept: String = "application/json"): String {
     client.newCall(request(url, accept)).execute().use { response ->
       val body = response.body?.string().orEmpty()
       if (!response.isSuccessful) {
-        error("HTTP ${response.code} for $url")
+        throw HttpStatusException(response.code, url)
       }
       return body
     }

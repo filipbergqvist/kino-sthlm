@@ -13,16 +13,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -39,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -67,6 +67,7 @@ fun ReviewDialog(
   onChoose: (String, TitleCandidate) -> Unit,
   onResolveByLink: (String, String) -> Unit,
   onRemove: (String) -> Unit,
+  onOpenLink: (String) -> Unit,
   onDismiss: () -> Unit,
 ) {
   // Entries put off with "Later", kept for this sitting only so they stop coming back round.
@@ -80,27 +81,35 @@ fun ReviewDialog(
   }
 
   var link by remember(entry.item.id) { mutableStateOf("") }
+  // Which candidate is being previewed full-size, if any. Cleared whenever the entry changes.
+  var previewing by remember(entry.item.id) { mutableStateOf<TitleCandidate?>(null) }
 
   ModalBottomSheet(
     onDismissRequest = onDismiss,
     sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     modifier = Modifier.testTag("review_sheet"),
   ) {
+    val candidate = previewing
+    if (candidate != null) {
+      CandidatePreview(
+        candidate = candidate,
+        onOpenLink = onOpenLink,
+        onSelect = {
+          onChoose(entry.item.id, candidate)
+          previewing = null
+        },
+        onBack = { previewing = null },
+      )
+      return@ModalBottomSheet
+    }
+
     Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 20.dp)) {
-      Row(verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-          Text("Which \"${entry.item.title}\"?", style = MaterialTheme.typography.titleLarge)
-          Text(
-            if (queue.size > 1) "${queue.size} titles still need a choice" else "Last one",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-        }
-        // 50 entries is a lot of "Later" taps; one X closes the whole sitting.
-        IconButton(onClick = onDismiss, modifier = Modifier.testTag("close_review")) {
-          Icon(Icons.Default.Close, contentDescription = "Close")
-        }
-      }
+      Text("Which \"${entry.item.title}\"?", style = MaterialTheme.typography.titleLarge)
+      Text(
+        if (queue.size > 1) "${queue.size} titles still need a choice" else "Last one",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
 
       Spacer(Modifier.height(8.dp))
       if (entry.candidates.isEmpty()) {
@@ -115,8 +124,10 @@ fun ReviewDialog(
           verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
           items(entry.candidates.size) { position ->
-            val candidate = entry.candidates[position]
-            CandidateRow(candidate) { onChoose(entry.item.id, candidate) }
+            val option = entry.candidates[position]
+            // Tapping previews rather than committing: a title and a year are rarely enough to
+            // be sure, and picking the wrong one silently tracks the wrong film.
+            CandidateRow(option) { previewing = option }
           }
         }
       }
@@ -156,6 +167,75 @@ fun ReviewDialog(
           Text("Remove")
         }
       }
+    }
+  }
+}
+
+/**
+ * One candidate at full size — poster, synopsis and a link out — so the choice is made on more
+ * than a title and a year.
+ */
+@Composable
+private fun CandidatePreview(
+  candidate: TitleCandidate,
+  onOpenLink: (String) -> Unit,
+  onSelect: () -> Unit,
+  onBack: () -> Unit,
+) {
+  Column(
+    Modifier.padding(horizontal = 20.dp)
+      .padding(bottom = 20.dp)
+      .verticalScroll(rememberScrollState())
+      .testTag("candidate_preview"),
+  ) {
+    Row {
+      val posterShape = Modifier.size(width = 120.dp, height = 180.dp).clip(RoundedCornerShape(8.dp))
+      if (candidate.posterUrl != null) {
+        AsyncImage(
+          model = candidate.posterUrl,
+          contentDescription = null,
+          contentScale = ContentScale.Crop,
+          modifier = posterShape,
+        )
+      } else {
+        PosterPlaceholder(posterShape)
+      }
+      Spacer(Modifier.width(16.dp))
+      Column(Modifier.weight(1f)) {
+        Text(candidate.title, style = MaterialTheme.typography.titleLarge)
+        candidate.year?.let {
+          Text(
+            it.toString(),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+        val link =
+          candidate.imdbId?.let { "https://www.imdb.com/title/$it/" }
+            ?: "https://www.themoviedb.org/movie/${candidate.tmdbId}"
+        TextButton(
+          onClick = { onOpenLink(link) },
+          contentPadding = PaddingValues(0.dp),
+          modifier = Modifier.testTag("preview_open_link"),
+        ) {
+          Text(if (candidate.imdbId != null) "View on IMDb" else "View on TMDB")
+        }
+      }
+    }
+
+    Spacer(Modifier.height(12.dp))
+    Text(
+      candidate.overview ?: "No description available.",
+      style = MaterialTheme.typography.bodyMedium,
+      color =
+        if (candidate.overview != null) MaterialTheme.colorScheme.onSurface
+        else MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+
+    Spacer(Modifier.height(16.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      Button(onClick = onSelect, modifier = Modifier.testTag("preview_select")) { Text("Select") }
+      TextButton(onClick = onBack, modifier = Modifier.testTag("preview_back")) { Text("Back") }
     }
   }
 }
@@ -246,10 +326,27 @@ fun AddFilmDialog(
   searchState: AddSearchState,
   onSearch: (String) -> Unit,
   onAdd: (TitleLookup.Candidate) -> Unit,
+  onOpenLink: (String) -> Unit,
   onDismiss: () -> Unit,
 ) {
   var input by remember { mutableStateOf("") }
   var searched by remember { mutableStateOf(false) }
+  var previewing by remember { mutableStateOf<TitleLookup.Candidate?>(null) }
+  val keyboard = LocalSoftwareKeyboardController.current
+
+  val candidate = previewing
+  if (candidate != null) {
+    AddCandidatePreview(
+      candidate = candidate,
+      onOpenLink = onOpenLink,
+      onAdd = {
+        onAdd(candidate)
+        onDismiss()
+      },
+      onBack = { previewing = null },
+    )
+    return
+  }
 
   AlertDialog(
     onDismissRequest = onDismiss,
@@ -298,11 +395,10 @@ fun AddFilmDialog(
             verticalArrangement = Arrangement.spacedBy(8.dp),
           ) {
             items(searchState.results.size) { position ->
-              val candidate = searchState.results[position]
-              AddCandidateRow(candidate) {
-                onAdd(candidate)
-                onDismiss()
-              }
+              val option = searchState.results[position]
+              // Preview rather than add outright: same reasoning as the review sheet, a title
+              // and a year are not enough to be sure which film this is.
+              AddCandidateRow(option) { previewing = option }
             }
           }
         }
@@ -312,6 +408,9 @@ fun AddFilmDialog(
       TextButton(
         onClick = {
           searched = true
+          // The results appear right under the field, so leaving the keyboard up would cover
+          // most of them.
+          keyboard?.hide()
           onSearch(input.trim())
         },
         enabled = input.isNotBlank() && !searchState.isSearching,
@@ -330,7 +429,19 @@ private fun AddCandidateRow(candidate: TitleLookup.Candidate, onClick: () -> Uni
     Modifier.fillMaxWidth().clickable(onClick = onClick).testTag("add_candidate_${candidate.tmdbId}"),
     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
   ) {
-    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+      val posterShape = Modifier.size(width = 40.dp, height = 60.dp).clip(RoundedCornerShape(4.dp))
+      if (candidate.posterUrl != null) {
+        AsyncImage(
+          model = candidate.posterUrl,
+          contentDescription = null,
+          contentScale = ContentScale.Crop,
+          modifier = posterShape,
+        )
+      } else {
+        PosterPlaceholder(posterShape)
+      }
+      Spacer(Modifier.width(10.dp))
       Column(Modifier.weight(1f)) {
         Text(candidate.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
         candidate.year?.let {
@@ -343,4 +454,65 @@ private fun AddCandidateRow(candidate: TitleLookup.Candidate, onClick: () -> Uni
       }
     }
   }
+}
+
+/** The same look-before-you-commit card the review sheet uses, for the manual add flow. */
+@Composable
+private fun AddCandidatePreview(
+  candidate: TitleLookup.Candidate,
+  onOpenLink: (String) -> Unit,
+  onAdd: () -> Unit,
+  onBack: () -> Unit,
+) {
+  AlertDialog(
+    onDismissRequest = onBack,
+    title = { Text(candidate.title) },
+    text = {
+      Column(Modifier.verticalScroll(rememberScrollState())) {
+        Row {
+          val posterShape =
+            Modifier.size(width = 110.dp, height = 165.dp).clip(RoundedCornerShape(8.dp))
+          if (candidate.posterUrl != null) {
+            AsyncImage(
+              model = candidate.posterUrl,
+              contentDescription = null,
+              contentScale = ContentScale.Crop,
+              modifier = posterShape,
+            )
+          } else {
+            PosterPlaceholder(posterShape)
+          }
+          Spacer(Modifier.width(12.dp))
+          Column(Modifier.weight(1f)) {
+            candidate.year?.let {
+              Text(
+                it.toString(),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+              )
+            }
+            val link =
+              candidate.imdbId?.let { "https://www.imdb.com/title/$it/" }
+                ?: "https://www.themoviedb.org/movie/${candidate.tmdbId}"
+            TextButton(
+              onClick = { onOpenLink(link) },
+              contentPadding = PaddingValues(0.dp),
+              modifier = Modifier.testTag("add_preview_link"),
+            ) {
+              Text(if (candidate.imdbId != null) "View on IMDb" else "View on TMDB")
+            }
+          }
+        }
+        Spacer(Modifier.height(12.dp))
+        Text(
+          candidate.overview ?: "No description available.",
+          style = MaterialTheme.typography.bodyMedium,
+        )
+      }
+    },
+    confirmButton = {
+      TextButton(onClick = onAdd, modifier = Modifier.testTag("add_preview_confirm")) { Text("Add") }
+    },
+    dismissButton = { TextButton(onClick = onBack) { Text("Back") } },
+  )
 }

@@ -25,6 +25,7 @@ import se.kinosthlm.app.data.prefs.SettingsStore
 import se.kinosthlm.app.data.source.CinemaSourceRegistry
 import se.kinosthlm.app.data.source.RawScreening
 import se.kinosthlm.app.data.watchlist.CsvWatchlistImporter
+import se.kinosthlm.app.data.watchlist.WatchlistCsvExporter
 import se.kinosthlm.app.data.watchlist.ImdbPublicListProvider
 import se.kinosthlm.app.data.watchlist.TitleLookup
 import se.kinosthlm.app.data.watchlist.TitleResolver
@@ -61,6 +62,15 @@ private constructor(
   /** Whether the build shipped a key of its own; false means the user must supply one. */
   val hasBuiltInTmdbKey: Boolean get() = BuildConfig.TMDB_API_KEY.isNotBlank()
 
+  /**
+   * True if TMDB has rate limited us recently enough to still explain what the user is seeing.
+   * A shared key is one budget for every install of that build, so this is worth saying out loud.
+   */
+  val isTmdbRateLimited: Boolean
+    get() =
+      lookup.lastRateLimitedAt != 0L &&
+        System.currentTimeMillis() - lookup.lastRateLimitedAt < RATE_LIMIT_NOTICE_MILLIS
+
   /** Pick up a key the user changed in Settings before making any TMDB request. */
   private suspend fun refreshTmdbKey() {
     userTmdbKey = runCatching { settings.currentTmdbApiKey() }.getOrDefault("")
@@ -68,6 +78,16 @@ private constructor(
 
   /** Poster requests already running, so a recomposing card cannot fire the same one twice. */
   private val inFlightPosters = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+  /**
+   * Poster fetches run a couple at a time rather than one per visible card at once.
+   *
+   * Scrolling a long list would otherwise fire a dozen simultaneous TMDB requests, which both
+   * starves whichever film is actually on screen — the queue is unordered, so the top of the
+   * list can end up last — and is a good way to earn the 429 that makes everything slower still.
+   */
+  @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+  private val posterDispatcher = Dispatchers.IO.limitedParallelism(2)
 
   val watchlist: Flow<List<WatchlistItem>> = database.watchlistDao().observeAll()
   val upcomingScreenings: Flow<List<Screening>> = database.screeningDao().observeUpcoming()
@@ -114,6 +134,17 @@ private constructor(
       database.watchlistDao().replaceSource(sourceId, items)
       database.titleCandidateDao().deleteOrphans()
       items.size
+    }
+
+  /** Write the watchlist to [uri] as a Trakt-importable CSV. Returns how many films were written. */
+  suspend fun exportCsv(uri: Uri): Int =
+    withContext(Dispatchers.IO) {
+      val items = database.watchlistDao().getAll().filter { it.isMatchable }
+      val csv = WatchlistCsvExporter.toCsv(items)
+      context.contentResolver.openOutputStream(uri)?.use { it.write(csv.toByteArray()) }
+        ?: error("Could not write to that file")
+      // The header line is not a film, and neither are entries with no id for Trakt to match on.
+      csv.lineSequence().count { it.isNotBlank() } - 1
     }
 
   suspend fun importImdbPublicList(listUrl: String): Int =
@@ -262,10 +293,10 @@ private constructor(
    * [inFlightPosters] keeps a card that recomposes from firing the same request twice.
    */
   suspend fun fetchPosterFor(itemId: String) =
-    withContext(Dispatchers.IO) {
+    withContext(posterDispatcher) {
       refreshTmdbKey()
       if (!lookup.isConfigured) return@withContext
-      val item = database.watchlistDao().getAll().firstOrNull { it.id == itemId } ?: return@withContext
+      val item = database.watchlistDao().getById(itemId) ?: return@withContext
       val tmdbId = item.tmdbId ?: return@withContext
       if (item.posterUrl != null) return@withContext
       if (!inFlightPosters.add(itemId)) return@withContext
@@ -626,6 +657,9 @@ private constructor(
 
     /** A film TMDB could not place may just be too new to be listed, so retry within the week. */
     private const val MISS_CACHE_MILLIS = 7L * 24 * 60 * 60 * 1000
+
+    /** How long a 429 stays worth mentioning; TMDB's own windows are far shorter than this. */
+    private const val RATE_LIMIT_NOTICE_MILLIS = 30L * 60 * 1000
 
     @Volatile private var INSTANCE: KinoRepository? = null
 

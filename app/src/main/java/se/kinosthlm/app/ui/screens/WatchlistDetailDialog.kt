@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
@@ -33,6 +34,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -71,24 +73,29 @@ fun WatchlistDetailDialog(
     modifier = Modifier.testTag("detail_${item.id}"),
   ) {
       Column(Modifier.verticalScroll(rememberScrollState())) {
-        if (item.posterUrl != null) {
-          AsyncImage(
-            model = item.posterUrl,
-            contentDescription = "${item.title} poster",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxWidth().heightIn(max = 280.dp),
-          )
-        }
-
         Column(Modifier.padding(20.dp)) {
-          Text(
-            item.title,
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.fillMaxWidth(),
-          )
-          Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+          // Posters are portrait; cropping one into a full-width banner wasted most of the sheet
+          // and looked odd. Beside the text it stays the shape it was made in.
+          Row {
+            val posterShape =
+              Modifier.size(width = 120.dp, height = 180.dp).clip(RoundedCornerShape(8.dp))
+            if (item.posterUrl != null) {
+              AsyncImage(
+                model = item.posterUrl,
+                contentDescription = "${item.title} poster",
+                contentScale = ContentScale.Crop,
+                modifier = posterShape,
+              )
+            } else {
+              PosterPlaceholder(posterShape)
+            }
+            Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
+              Text(
+                item.title,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+              )
               watchlistDescriptor(item, entry.sources)?.let { descriptor ->
                 Text(
                   descriptor,
@@ -98,6 +105,11 @@ fun WatchlistDetailDialog(
               }
               SourceTags(entry.sources, modifier = Modifier.padding(top = 6.dp))
             }
+          }
+
+          Spacer(Modifier.height(12.dp))
+          Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Spacer(Modifier.weight(1f))
             IconButton(
               onClick = { onToggleMute(item.id, !entry.isMuted) },
               modifier = Modifier.size(36.dp).testTag("toggle_mute_${item.id}"),

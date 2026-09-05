@@ -126,6 +126,7 @@ class TitleResolver(private val lookup: TitleLookup = TitleLookup()) {
                     year = candidate.year,
                     titleType = candidate.type,
                     posterUrl = candidate.posterUrl,
+                    overview = candidate.overview,
                   )
                 },
               )

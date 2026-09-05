@@ -204,6 +204,8 @@ data class TitleCandidate(
   val year: Int?,
   val titleType: String,
   val posterUrl: String? = null,
+  /** Kept so the review sheet can preview a candidate without a second round trip. */
+  val overview: String? = null,
 )
 
 /** Per-source outcome of one sync, so the UI can say *which* cinema failed and why. */
