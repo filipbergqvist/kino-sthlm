@@ -25,7 +25,7 @@ import se.kinosthlm.app.data.source.TellusSource
     TitleCandidate::class,
     WatchlistSource::class,
   ],
-  version = 4,
+  version = 5,
   exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {

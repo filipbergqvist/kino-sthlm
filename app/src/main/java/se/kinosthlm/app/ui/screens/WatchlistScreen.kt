@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AssistChip
@@ -292,6 +293,14 @@ private fun WatchlistCard(
                 contentDescription = "Pinned",
                 modifier = Modifier.padding(start = 6.dp).size(14.dp),
                 tint = MaterialTheme.colorScheme.primary,
+              )
+            }
+            if (entry.isMuted) {
+              Icon(
+                Icons.Default.NotificationsOff,
+                contentDescription = "Muted",
+                modifier = Modifier.padding(start = 6.dp).size(14.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
               )
             }
           }

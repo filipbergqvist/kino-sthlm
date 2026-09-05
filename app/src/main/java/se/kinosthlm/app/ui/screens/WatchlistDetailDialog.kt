@@ -16,6 +16,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.NotificationsOff
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.ButtonDefaults
@@ -49,6 +51,7 @@ fun WatchlistDetailDialog(
   onOpenImdb: (String) -> Unit,
   onRemove: (String) -> Unit,
   onTogglePin: (String, Boolean) -> Unit,
+  onToggleMute: (String, Boolean) -> Unit,
   onDismiss: () -> Unit,
 ) {
   val item = entry.item
@@ -79,6 +82,18 @@ fun WatchlistDetailDialog(
               modifier = Modifier.weight(1f, fill = false),
             )
             Spacer(Modifier.width(8.dp))
+            IconButton(
+              onClick = { onToggleMute(item.id, !entry.isMuted) },
+              modifier = Modifier.testTag("toggle_mute_${item.id}"),
+            ) {
+              Icon(
+                if (entry.isMuted) Icons.Default.NotificationsOff else Icons.Outlined.Notifications,
+                contentDescription = if (entry.isMuted) "Unmute notifications" else "Mute notifications for this film",
+                tint =
+                  if (entry.isMuted) MaterialTheme.colorScheme.error
+                  else MaterialTheme.colorScheme.onSurfaceVariant,
+              )
+            }
             IconButton(
               onClick = { onTogglePin(item.id, !entry.isPinned) },
               modifier = Modifier.testTag("toggle_pin_${item.id}"),

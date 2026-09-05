@@ -34,6 +34,9 @@ data class WatchlistEntry(
 
   /** Protected from disappearing if its real sources later drop it. */
   val isPinned: Boolean get() = WatchlistItem.SOURCE_PINNED in sources
+
+  /** Still matched and shown, but never pushes a notification. */
+  val isMuted: Boolean get() = item.notificationsMuted
 }
 
 /** One ambiguous title and the films it could be, for the review sheet. */
@@ -324,6 +327,14 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
     viewModelScope.launch {
       repository.setPinned(itemId, pinned)
       message.value = if (pinned) "Pinned — it will stay even if its source removes it" else "Unpinned"
+    }
+  }
+
+  /** Keep matching and showing this film, but stop (or resume) pushing notifications for it. */
+  fun toggleMute(itemId: String, muted: Boolean) {
+    viewModelScope.launch {
+      repository.setNotificationsMuted(itemId, muted)
+      message.value = if (muted) "Muted — won't notify for this film" else "Unmuted"
     }
   }
 

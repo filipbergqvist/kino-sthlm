@@ -164,6 +164,10 @@ private constructor(
   suspend fun setPinned(itemId: String, pinned: Boolean) =
     withContext(Dispatchers.IO) { database.watchlistDao().setPinned(itemId, pinned) }
 
+  /** Keep matching and showing this film, but never push a notification for it. */
+  suspend fun setNotificationsMuted(itemId: String, muted: Boolean) =
+    withContext(Dispatchers.IO) { database.watchlistDao().setMuted(itemId, muted) }
+
   // --- Identifying titles ---
 
   /**
@@ -427,13 +431,17 @@ private constructor(
       }
 
       // 6. Notify about showings the user has not been told about yet.
+      val mutedIds = currentWatchlist.filter { it.notificationsMuted }.map { it.id }.toSet()
       val alreadyNotified = database.notificationDao().notifiedIds().toSet()
       val fresh = matched.filter { it.id !in alreadyNotified }
+      // A muted film's screenings still count as "seen" so unmuting it later does not replay
+      // everything found while it was muted.
+      val toNotify = fresh.filterNot { it.watchlistMovieId in mutedIds }
       var sent = 0
-      if (fresh.isNotEmpty() && settings.notificationsEnabled.first()) {
+      if (toNotify.isNotEmpty() && settings.notificationsEnabled.first()) {
         onStep("Sending notifications…")
-        notifications.notifyNewScreenings(fresh)
-        sent = fresh.size
+        notifications.notifyNewScreenings(toNotify)
+        sent = toNotify.size
       }
       // Log even when notifications are off, so switching them on does not replay history.
       for (screening in fresh) {

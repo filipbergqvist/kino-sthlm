@@ -37,6 +37,8 @@ data class WatchlistItem(
   val suppressed: Boolean = false,
   val addedAt: Long = System.currentTimeMillis(),
   val overview: String? = null,
+  /** Still matched and shown, but never pushes a notification. Set per-film from the detail view. */
+  val notificationsMuted: Boolean = false,
 ) {
   val isFilm: Boolean get() = titleType != TYPE_SERIES
 

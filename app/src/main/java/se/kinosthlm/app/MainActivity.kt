@@ -282,6 +282,7 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
       onOpenImdb = openUrl,
       onRemove = { viewModel.removeFilm(it) },
       onTogglePin = { id, pinned -> viewModel.togglePin(id, pinned) },
+      onToggleMute = { id, muted -> viewModel.toggleMute(id, muted) },
       onDismiss = { detailEntryId = null },
     )
   }
