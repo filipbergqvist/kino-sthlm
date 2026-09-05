@@ -9,11 +9,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import se.kinosthlm.app.BuildConfig
 import se.kinosthlm.app.data.local.AppDatabase
 import se.kinosthlm.app.data.match.ScreeningMatcher
 import se.kinosthlm.app.data.model.Cinema
 import se.kinosthlm.app.data.model.NotificationLog
 import se.kinosthlm.app.data.model.Screening
+import se.kinosthlm.app.data.model.ScreeningTitleCache
 import se.kinosthlm.app.data.model.SourceResult
 import se.kinosthlm.app.data.model.SyncReport
 import se.kinosthlm.app.data.model.TitleCandidate
@@ -45,11 +47,24 @@ private constructor(
 ) {
 
   val trakt: TraktProvider = TraktProvider(context)
-  private val resolver = TitleResolver()
-  private val lookup = TitleLookup()
 
-  /** False when this build has no TMDB key — identification, posters and manual add all need it. */
-  val tmdbConfigured: Boolean get() = lookup.isConfigured
+  /**
+   * The user's own TMDB key, if they set one, refreshed by every suspending entry point that is
+   * about to talk to TMDB. Kept as a plain field because [TitleLookup] reads it synchronously
+   * per request, while the setting itself lives in DataStore.
+   */
+  @Volatile private var userTmdbKey: String = ""
+
+  private val lookup = TitleLookup({ userTmdbKey.ifBlank { BuildConfig.TMDB_API_KEY } })
+  private val resolver = TitleResolver(lookup)
+
+  /** Whether the build shipped a key of its own; false means the user must supply one. */
+  val hasBuiltInTmdbKey: Boolean get() = BuildConfig.TMDB_API_KEY.isNotBlank()
+
+  /** Pick up a key the user changed in Settings before making any TMDB request. */
+  private suspend fun refreshTmdbKey() {
+    userTmdbKey = runCatching { settings.currentTmdbApiKey() }.getOrDefault("")
+  }
 
   /** Poster requests already running, so a recomposing card cannot fire the same one twice. */
   private val inFlightPosters = java.util.Collections.synchronizedSet(mutableSetOf<String>())
@@ -120,9 +135,10 @@ private constructor(
    */
   suspend fun searchToAdd(input: String): List<TitleLookup.Candidate> =
     withContext(Dispatchers.IO) {
+      refreshTmdbKey()
       if (!lookup.isConfigured) {
         error(
-          "This build has no TMDB API key, so films cannot be identified. " +
+          "No TMDB API key. Add one under Settings → TMDB, or build with one. " +
             "See the README's \"API keys\" section."
         )
       }
@@ -156,6 +172,7 @@ private constructor(
   /** Add a film the user picked from [searchToAdd]'s results. Returns its title. */
   suspend fun addCandidate(candidate: TitleLookup.Candidate): String =
     withContext(Dispatchers.IO) {
+      refreshTmdbKey()
       if (!candidate.isFilm) {
         error("\"${candidate.title}\" is a TV series, which never plays in cinemas.")
       }
@@ -218,6 +235,7 @@ private constructor(
     onProgress: (Int, Int) -> Unit = { _, _ -> },
   ): TitleResolver.Outcome =
     withContext(Dispatchers.IO) {
+      refreshTmdbKey()
       val before = database.watchlistDao().getAll()
       val outcome = resolver.resolve(before, limit, onProgress)
       applyResolutions(outcome.resolutions, before)
@@ -245,6 +263,7 @@ private constructor(
    */
   suspend fun fetchPosterFor(itemId: String) =
     withContext(Dispatchers.IO) {
+      refreshTmdbKey()
       if (!lookup.isConfigured) return@withContext
       val item = database.watchlistDao().getAll().firstOrNull { it.id == itemId } ?: return@withContext
       val tmdbId = item.tmdbId ?: return@withContext
@@ -288,6 +307,7 @@ private constructor(
    */
   suspend fun resolveAmbiguity(itemId: String, candidate: TitleCandidate) =
     withContext(Dispatchers.IO) {
+      refreshTmdbKey()
       val item = database.watchlistDao().getAll().firstOrNull { it.id == itemId }
         ?: return@withContext
       val imdbId = candidate.imdbId ?: lookupImdbId(candidate)
@@ -336,6 +356,7 @@ private constructor(
   suspend fun sync(onStep: (String) -> Unit = {}): SyncReport =
     withContext(Dispatchers.IO) {
       val startedAt = System.currentTimeMillis()
+      refreshTmdbKey()
       seedCinemas()
 
       // 1. Refresh whatever can refresh itself. Currently that means Trakt.
@@ -548,16 +569,36 @@ private constructor(
    * per showing — several venues typically screen the same film. Empty (not per-item errors)
    * when TMDB is unconfigured, which is what makes [ScreeningMatcher] fall back to text matching
    * uniformly rather than partially.
+   *
+   * Answers are remembered in [ScreeningTitleCache] between syncs. Without that, every sync
+   * re-asked TMDB what every title on every cinema's schedule was — a hundred-odd searches, four
+   * times a day, per device, for answers that do not change. Misses are cached too, but expire
+   * sooner: a title TMDB cannot place today might simply not be listed yet.
    */
   private suspend fun resolveScreeningTmdbIds(screenings: List<RawScreening>): Map<String, Int?> {
     if (!lookup.isConfigured) return emptyMap()
-    val distinct = screenings.distinctBy { it.tmdbCacheKey() }
-    return distinct.associate { screening ->
-      screening.tmdbCacheKey() to
-        runCatching { lookup.resolveBestMatch(screening.title, screening.year) }
-          .getOrNull()
-          ?.tmdbId
-    }
+
+    val cacheDao = database.screeningTitleCacheDao()
+    val now = System.currentTimeMillis()
+    cacheDao.deleteStaleMisses(now - MISS_CACHE_MILLIS)
+    cacheDao.deleteResolvedBefore(now - HIT_CACHE_MILLIS)
+
+    val keys = screenings.map { it.tmdbCacheKey() }.distinct()
+    val known = cacheDao.get(keys).associate { it.titleKey to it.tmdbId }
+
+    val unknown = screenings.distinctBy { it.tmdbCacheKey() }.filter { it.tmdbCacheKey() !in known }
+    if (unknown.isEmpty()) return known
+
+    val resolved =
+      unknown.associate { screening ->
+        screening.tmdbCacheKey() to
+          runCatching { lookup.resolveBestMatch(screening.title, screening.year) }
+            .getOrNull()
+            ?.tmdbId
+      }
+    cacheDao.insertAll(resolved.map { (key, id) -> ScreeningTitleCache(key, id, now) })
+
+    return known + resolved
   }
 
   private fun RawScreening.tmdbCacheKey(): String = "$title|$year"
@@ -579,6 +620,12 @@ private constructor(
 
     /** Ninety days: long past any screening we would re-announce. */
     private const val LOG_RETENTION_MILLIS = 90L * 24 * 60 * 60 * 1000
+
+    /** A title's TMDB id does not change; re-check yearly only to catch renamed entries. */
+    private const val HIT_CACHE_MILLIS = 365L * 24 * 60 * 60 * 1000
+
+    /** A film TMDB could not place may just be too new to be listed, so retry within the week. */
+    private const val MISS_CACHE_MILLIS = 7L * 24 * 60 * 60 * 1000
 
     @Volatile private var INSTANCE: KinoRepository? = null
 

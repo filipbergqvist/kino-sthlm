@@ -87,6 +87,18 @@ repository secrets.
 TMDB keys come from <https://www.themoviedb.org/settings/api> (pick "Developer", it is instant
 and free for non-commercial use).
 
+**Whose quota gets spent.** The two behave differently, which matters if you share your build:
+
+- **Trakt** is per-user despite the shared registration. Your client id identifies the app; each
+  person then authorises with their own account, and every read goes out under *their* token. Note
+  that a free Trakt account may only connect **one** community app, and caps the watchlist at 250
+  items — so a friend already using Trakt with Plex or Kodi needs VIP to add this one.
+- **TMDB** is genuinely shared: the key is anonymous, so every install's requests count against
+  whoever's key the build carries. Volume is small — resolved titles are cached in the database
+  rather than looked up every sync — but anyone who would rather spend their own quota can paste
+  their own key under **Settings → TMDB**, which overrides the built-in one without a rebuild.
+  That is also how to use a build that shipped with no key at all.
+
 ### Connecting Trakt
 
 Trakt is the only source that can refresh on its own, and it needs a free app registration:

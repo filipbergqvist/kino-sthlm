@@ -140,6 +140,27 @@ data class Screening(
   val foundAt: Long = System.currentTimeMillis(),
 )
 
+/**
+ * What film a cinema's raw listing title actually is, remembered across syncs.
+ *
+ * Resolving "Barry Lyndon (1975)" to a TMDB id is a network round trip, and the answer never
+ * changes — but every sync re-derives it for every distinct title on every enabled cinema's
+ * schedule. Left uncached that is by far the app's largest source of TMDB traffic, all of it
+ * re-asking questions it already had answers to.
+ *
+ * Failures are cached too, under a shorter [se.kinosthlm.app.data.repository.KinoRepository]
+ * expiry: a title TMDB cannot place today may simply not be listed yet, so it is worth asking
+ * again eventually — just not four times a day forever.
+ */
+@Entity(tableName = "screening_title_cache")
+data class ScreeningTitleCache(
+  /** The raw listing title and year, exactly as the cinema published it. */
+  @PrimaryKey val titleKey: String,
+  /** Null means TMDB had no confident answer, which is itself worth remembering. */
+  val tmdbId: Int? = null,
+  val resolvedAt: Long = System.currentTimeMillis(),
+)
+
 /** One row per notification sent, so a screening is never announced twice. */
 @Entity(tableName = "notification_logs")
 data class NotificationLog(

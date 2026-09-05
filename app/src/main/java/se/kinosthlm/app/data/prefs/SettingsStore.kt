@@ -38,6 +38,15 @@ class SettingsStore(private val context: Context) {
 
   val imdbListUrl: Flow<String> = context.dataStore.data.map { it[KEY_IMDB_LIST] ?: "" }
 
+  /**
+   * A TMDB key of the user's own, which takes precedence over whatever the build shipped with.
+   *
+   * The built-in key is anonymous and shared by every install, so it is one rate limit for
+   * everybody. Anyone who would rather spend their own quota — or who installed a build that has
+   * no key at all — can paste one here instead of rebuilding the app.
+   */
+  val tmdbApiKey: Flow<String> = context.dataStore.data.map { it[KEY_TMDB_KEY] ?: "" }
+
   suspend fun setAutoSyncEnabled(enabled: Boolean) = edit { it[KEY_AUTO_SYNC] = enabled }
 
   suspend fun setSyncIntervalHours(hours: Long) = edit { it[KEY_INTERVAL_HOURS] = hours }
@@ -48,6 +57,8 @@ class SettingsStore(private val context: Context) {
 
   suspend fun setImdbListUrl(url: String) = edit { it[KEY_IMDB_LIST] = url }
 
+  suspend fun setTmdbApiKey(key: String) = edit { it[KEY_TMDB_KEY] = key.trim() }
+
   suspend fun recordSync(timestamp: Long, summary: String) = edit {
     it[KEY_LAST_SYNC] = timestamp
     it[KEY_LAST_SUMMARY] = summary
@@ -56,6 +67,8 @@ class SettingsStore(private val context: Context) {
   suspend fun currentIntervalHours(): Long = syncIntervalHours.first()
 
   suspend fun currentHorizonDays(): Long = horizonDays.first()
+
+  suspend fun currentTmdbApiKey(): String = tmdbApiKey.first()
 
   private suspend fun edit(block: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
     context.dataStore.edit(block)
@@ -80,5 +93,6 @@ class SettingsStore(private val context: Context) {
     private val KEY_LAST_SYNC = longPreferencesKey("last_sync_at")
     private val KEY_LAST_SUMMARY = stringPreferencesKey("last_sync_summary")
     private val KEY_IMDB_LIST = stringPreferencesKey("imdb_list_url")
+    private val KEY_TMDB_KEY = stringPreferencesKey("tmdb_api_key")
   }
 }

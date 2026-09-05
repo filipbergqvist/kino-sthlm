@@ -12,10 +12,15 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -38,6 +43,7 @@ fun SettingsScreen(
   onSetAutoSync: (Boolean) -> Unit,
   onSetInterval: (Long) -> Unit,
   onSetHorizon: (Long) -> Unit,
+  onSetTmdbKey: (String) -> Unit,
   onSetNotifications: (Boolean) -> Unit,
   onSyncNow: () -> Unit,
   onResolveTitles: () -> Unit,
@@ -181,8 +187,8 @@ fun SettingsScreen(
         }
         if (!uiState.tmdbConfigured) {
           Text(
-            "No TMDB API key in this build — titles, posters, descriptions and manual add all " +
-              "need one. See the README's \"API keys\" section.",
+            "No TMDB API key — titles, posters, descriptions and manual add all need one. " +
+              "Add yours below.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.error,
             modifier = Modifier.padding(top = 8.dp).testTag("tmdb_not_configured"),
@@ -190,6 +196,8 @@ fun SettingsScreen(
         }
       }
     }
+
+    item { TmdbKeySection(uiState = uiState, onSetKey = onSetTmdbKey, onOpenUrl = onOpenUrl) }
 
     // Name the sources that broke rather than hiding the failure behind a total.
     if (uiState.failedSources.isNotEmpty()) {
@@ -231,6 +239,65 @@ fun SettingsScreen(
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+      }
+    }
+  }
+}
+
+/**
+ * Somewhere to put your own TMDB key.
+ *
+ * The key a build ships with is anonymous and shared by everyone running that build, so it is one
+ * rate limit between all of them. Pasting your own spends your quota instead — and it is the only
+ * way to use a build that shipped without a key at all.
+ */
+@Composable
+private fun TmdbKeySection(uiState: UiState, onSetKey: (String) -> Unit, onOpenUrl: (String) -> Unit) {
+  Section("TMDB") {
+    var draft by remember(uiState.tmdbKey) { mutableStateOf(uiState.tmdbKey) }
+
+    Text(
+      if (uiState.tmdbKey.isNotBlank()) {
+        "Using your own key."
+      } else if (uiState.tmdbConfigured) {
+        "Using this build's shared key. Paste your own to spend your own quota instead."
+      } else {
+        "This build has no key of its own. Paste one to enable posters, descriptions, title " +
+          "identification and manual add."
+      },
+      style = MaterialTheme.typography.bodySmall,
+      color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+
+    OutlinedTextField(
+      value = draft,
+      onValueChange = { draft = it },
+      label = { Text("TMDB API key") },
+      singleLine = true,
+      modifier = Modifier.fillMaxWidth().padding(top = 8.dp).testTag("tmdb_key_input"),
+    )
+
+    Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      TextButton(
+        onClick = { onSetKey(draft.trim()) },
+        enabled = draft.trim() != uiState.tmdbKey,
+        modifier = Modifier.testTag("save_tmdb_key"),
+      ) {
+        Text("Save")
+      }
+      if (uiState.tmdbKey.isNotBlank()) {
+        TextButton(
+          onClick = {
+            draft = ""
+            onSetKey("")
+          },
+          modifier = Modifier.testTag("clear_tmdb_key"),
+        ) {
+          Text("Clear")
+        }
+      }
+      TextButton(onClick = { onOpenUrl("https://www.themoviedb.org/settings/api") }) {
+        Text("Get a key")
       }
     }
   }

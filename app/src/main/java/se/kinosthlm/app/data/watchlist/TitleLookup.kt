@@ -21,9 +21,18 @@ import se.kinosthlm.app.data.net.Http
  * films cannot be told apart. [isConfigured] reports that, and the UI says so plainly.
  */
 class TitleLookup(
-  private val apiKey: String = BuildConfig.TMDB_API_KEY,
+  /**
+   * Read per call rather than captured, so a key pasted into Settings takes effect immediately
+   * instead of only after the next app start.
+   */
+  private val apiKeyProvider: () -> String = { BuildConfig.TMDB_API_KEY },
   private val baseUrl: String = BASE,
 ) {
+
+  /** Fixed-key constructor, for tests and anywhere the key cannot change under us. */
+  constructor(apiKey: String, baseUrl: String = BASE) : this({ apiKey }, baseUrl)
+
+  private val apiKey: String get() = apiKeyProvider()
 
   val isConfigured: Boolean get() = apiKey.isNotBlank()
 

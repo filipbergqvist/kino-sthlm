@@ -108,6 +108,8 @@ data class UiState(
   val traktState: TraktState = TraktState.Disconnected,
   val traktConfigured: Boolean = false,
   val tmdbConfigured: Boolean = false,
+  /** The user's own TMDB key, if they set one. Blank means the build's key (if any) is used. */
+  val tmdbKey: String = "",
   val message: String? = null,
   /** Films selected for a bulk action, entered with a long press. Empty means not selecting. */
   val selectedIds: Set<String> = emptySet(),
@@ -165,17 +167,27 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
           Content(watchlist, screenings, cinemas, sources, filters)
         },
         combine(
-          combine(settings.autoSyncEnabled, settings.syncIntervalHours, settings.horizonDays) {
-            auto,
-            interval,
-            horizon ->
-            Triple(auto, interval, horizon)
+          combine(
+            settings.autoSyncEnabled,
+            settings.syncIntervalHours,
+            settings.horizonDays,
+            settings.tmdbApiKey,
+          ) { auto, interval, horizon, tmdbKey ->
+            Schedule(auto, interval, horizon, tmdbKey)
           },
           settings.notificationsEnabled,
           settings.lastSyncAt,
           settings.lastSyncSummary,
         ) { schedule, notifications, lastAt, summary ->
-          Prefs(schedule.first, schedule.second, schedule.third, notifications, lastAt, summary)
+          Prefs(
+            schedule.autoSync,
+            schedule.intervalHours,
+            schedule.horizonDays,
+            schedule.tmdbKey,
+            notifications,
+            lastAt,
+            summary,
+          )
         },
         combine(
           combine(isSyncing, syncStep, selectedIds) { syncing, step, selected ->
@@ -254,7 +266,8 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
           watchlistSortDescending = content.filters.sortDescending,
           traktState = transient.trakt,
           traktConfigured = repository.trakt.isConfigured,
-          tmdbConfigured = repository.tmdbConfigured,
+          tmdbConfigured = prefs.tmdbKey.isNotBlank() || repository.hasBuiltInTmdbKey,
+          tmdbKey = prefs.tmdbKey,
           needsReview = review.entries,
           seriesCount = review.seriesCount,
           isResolving = transient.progress != null,
@@ -317,6 +330,14 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
         SyncWorker.schedulePeriodic(getApplication(), hours)
       }
       message.value = "Syncing every ${hours}h"
+    }
+  }
+
+  /** Use the user's own TMDB key instead of the one this build shipped with; blank clears it. */
+  fun setTmdbApiKey(key: String) {
+    viewModelScope.launch {
+      settings.setTmdbApiKey(key)
+      message.value = if (key.isBlank()) "Using this build's TMDB key" else "TMDB key saved"
     }
   }
 
@@ -626,10 +647,19 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
     val filters: Filters,
   )
 
+  /** Keeps the preferences combine inside its five-flow arity limit. */
+  private data class Schedule(
+    val autoSync: Boolean,
+    val intervalHours: Long,
+    val horizonDays: Long,
+    val tmdbKey: String,
+  )
+
   private data class Prefs(
     val autoSync: Boolean,
     val intervalHours: Long,
     val horizonDays: Long,
+    val tmdbKey: String,
     val notifications: Boolean,
     val lastSyncAt: Long,
     val summary: String,

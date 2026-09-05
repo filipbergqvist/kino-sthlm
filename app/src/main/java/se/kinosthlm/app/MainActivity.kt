@@ -284,6 +284,7 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
             onSetAutoSync = { viewModel.setAutoSync(it) },
             onSetInterval = { viewModel.setSyncInterval(it) },
             onSetHorizon = { viewModel.setHorizonDays(it) },
+            onSetTmdbKey = { viewModel.setTmdbApiKey(it) },
             onSetNotifications = { viewModel.setNotificationsEnabled(it) },
             onSyncNow = { viewModel.sync() },
             onResolveTitles = { viewModel.resolveTitlesNow() },

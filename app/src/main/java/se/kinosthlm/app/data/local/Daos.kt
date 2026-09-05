@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.Flow
 import se.kinosthlm.app.data.model.Cinema
 import se.kinosthlm.app.data.model.NotificationLog
 import se.kinosthlm.app.data.model.Screening
+import se.kinosthlm.app.data.model.ScreeningTitleCache
 import se.kinosthlm.app.data.model.TitleCandidate
 import se.kinosthlm.app.data.model.WatchlistItem
 import se.kinosthlm.app.data.model.WatchlistSource
@@ -231,6 +232,25 @@ interface CinemaDao {
     "UPDATE cinemas SET lastPolledAt = :timestamp, upcomingScreeningsCount = :count WHERE id = :id"
   )
   suspend fun updateStats(id: String, timestamp: Long, count: Int)
+}
+
+@Dao
+interface ScreeningTitleCacheDao {
+  @Query("SELECT * FROM screening_title_cache WHERE titleKey IN (:keys)")
+  suspend fun get(keys: List<String>): List<ScreeningTitleCache>
+
+  @Insert(onConflict = OnConflictStrategy.REPLACE)
+  suspend fun insertAll(entries: List<ScreeningTitleCache>)
+
+  /** Drop stale answers so a title TMDB could not place is eventually asked about again. */
+  @Query("DELETE FROM screening_title_cache WHERE resolvedAt < :cutoff")
+  suspend fun deleteResolvedBefore(cutoff: Long)
+
+  /** Same, but only for the misses — a successful match is worth keeping far longer. */
+  @Query("DELETE FROM screening_title_cache WHERE tmdbId IS NULL AND resolvedAt < :cutoff")
+  suspend fun deleteStaleMisses(cutoff: Long)
+
+  @Query("DELETE FROM screening_title_cache") suspend fun clear()
 }
 
 @Dao

@@ -7,6 +7,7 @@ import androidx.room.RoomDatabase
 import se.kinosthlm.app.data.model.Cinema
 import se.kinosthlm.app.data.model.NotificationLog
 import se.kinosthlm.app.data.model.Screening
+import se.kinosthlm.app.data.model.ScreeningTitleCache
 import se.kinosthlm.app.data.model.TitleCandidate
 import se.kinosthlm.app.data.model.WatchlistItem
 import se.kinosthlm.app.data.model.WatchlistSource
@@ -24,8 +25,9 @@ import se.kinosthlm.app.data.source.TellusSource
     NotificationLog::class,
     TitleCandidate::class,
     WatchlistSource::class,
+    ScreeningTitleCache::class,
   ],
-  version = 6,
+  version = 7,
   exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -38,6 +40,8 @@ abstract class AppDatabase : RoomDatabase() {
   abstract fun notificationDao(): NotificationDao
 
   abstract fun titleCandidateDao(): TitleCandidateDao
+
+  abstract fun screeningTitleCacheDao(): ScreeningTitleCacheDao
 
   companion object {
     @Volatile private var INSTANCE: AppDatabase? = null
