@@ -84,7 +84,7 @@ class TitleResolverTest {
   }
 
   @Test
-  fun `marks a tv series so it stops cluttering the watchlist`() = runTest {
+  fun `marks a tv series and puts it to the user rather than hiding it`() = runTest {
     val server = serverReturning {
       search(Triple(1398, "The Sopranos", 1999), type = "tv")
     }
@@ -94,10 +94,31 @@ class TitleResolverTest {
           .resolve(listOf(item("The Sopranos")))
 
       assertEquals(1, outcome.series)
-      val resolved = outcome.resolutions.single().item
-      assertEquals(WatchlistItem.TYPE_SERIES, resolved.titleType)
-      assertFalse(resolved.isFilm)
-      assertFalse(resolved.isMatchable)
+      val resolution = outcome.resolutions.single()
+      assertEquals(WatchlistItem.TYPE_SERIES, resolution.item.titleType)
+      assertFalse(resolution.item.isFilm)
+      // Never matched against listings either way — but the user gets asked rather than finding
+      // the title silently gone from a list they imported.
+      assertFalse(resolution.item.isMatchable)
+      assertTrue(resolution.item.needsReview)
+    } finally {
+      server.shutdown()
+    }
+  }
+
+  @Test
+  fun `a series review offers what we actually matched, so the verdict can be checked`() = runTest {
+    val server = serverReturning {
+      search(Triple(1398, "The Sopranos", 1999), type = "tv")
+    }
+    try {
+      val outcome =
+        TitleResolver(lookupAgainst(server))
+          .resolve(listOf(item("The Sopranos")))
+
+      val candidates = outcome.resolutions.single().candidates
+      assertEquals(1, candidates.size)
+      assertEquals("The Sopranos", candidates.single().title)
     } finally {
       server.shutdown()
     }

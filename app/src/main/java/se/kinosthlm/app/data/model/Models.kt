@@ -45,8 +45,24 @@ data class WatchlistItem(
    * Null means any cinema. The screening still shows either way; this only gates the push.
    */
   val requiredVenueTag: String? = null,
+  /**
+   * True once TMDB has been asked about this film — poster, synopsis and genres — whatever came
+   * back. Records the question having been asked, not the answer.
+   *
+   * Without it a film TMDB simply has no poster for is indistinguishable from one whose poster
+   * has not arrived yet, so the card pulses its loading placeholder forever.
+   */
+  val posterChecked: Boolean = false,
+  /** Comma-joined TMDB genre names, e.g. "Drama,Thriller". See [genreList]. */
+  val genres: String = "",
 ) {
   val isFilm: Boolean get() = titleType != TYPE_SERIES
+
+  val genreList: List<String>
+    get() = genres.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+
+  /** Nothing more to wait for: either we have the poster, or TMDB has told us there is none. */
+  val hasNoPoster: Boolean get() = posterUrl == null && (posterChecked || tmdbId == null)
 
   /** Only confidently identified, still-wanted films are worth matching against listings. */
   val isMatchable: Boolean get() = isFilm && !needsReview && !suppressed
@@ -113,8 +129,15 @@ data class Cinema(
     const val TAG_COZY = "Cozy"
     const val TAG_IMAX = "IMAX"
 
+    /**
+     * Hot food and a bar, not just popcorn and a soft drink — the difference between a screening
+     * and an evening out. Tags are already a list per venue, so a cinema can be both this and
+     * [TAG_COZY].
+     */
+    const val TAG_FOOD_DRINK = "Food & Drink"
+
     /** Every venue tag a film's [WatchlistItem.requiredVenueTag] can be set to. */
-    val ALL_TAGS = listOf(TAG_BIG_SCREEN, TAG_COZY, TAG_IMAX)
+    val ALL_TAGS = listOf(TAG_BIG_SCREEN, TAG_COZY, TAG_IMAX, TAG_FOOD_DRINK)
   }
 }
 

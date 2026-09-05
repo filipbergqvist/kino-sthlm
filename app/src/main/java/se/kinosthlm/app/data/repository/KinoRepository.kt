@@ -27,6 +27,7 @@ import se.kinosthlm.app.data.source.RawScreening
 import se.kinosthlm.app.data.watchlist.CsvWatchlistImporter
 import se.kinosthlm.app.data.watchlist.WatchlistCsvExporter
 import se.kinosthlm.app.data.watchlist.ImdbPublicListProvider
+import se.kinosthlm.app.data.watchlist.PastedTitleList
 import se.kinosthlm.app.data.watchlist.TitleLookup
 import se.kinosthlm.app.data.watchlist.TitleResolver
 import se.kinosthlm.app.data.watchlist.TraktProvider
@@ -113,8 +114,22 @@ private constructor(
       database.cinemaDao().insertAll(AppDatabase.defaultCinemas)
     }
 
+  /**
+   * Follow or stop following a venue.
+   *
+   * Switching one off drops the showings we already found there, not just future polling. The
+   * cinema is no longer visited, so the usual "did this sync see it again?" pruning can never
+   * reach it, and its screenings would otherwise linger under "Showing soon" until each date
+   * passed — which reads as the toggle not having worked.
+   */
   suspend fun setCinemaEnabled(cinemaId: String, isEnabled: Boolean) =
-    withContext(Dispatchers.IO) { database.cinemaDao().setEnabled(cinemaId, isEnabled) }
+    withContext(Dispatchers.IO) {
+      database.cinemaDao().setEnabled(cinemaId, isEnabled)
+      if (!isEnabled) {
+        database.screeningDao().deleteForCinema(cinemaId)
+        database.cinemaDao().updateStats(cinemaId, 0L, 0)
+      }
+    }
 
   // --- Watchlist ---
 
@@ -184,7 +199,8 @@ private constructor(
       }
       TitleLookup.extractTmdbId(trimmed)?.let { tmdbId ->
         return@withContext listOfNotNull(
-          lookup.fetchMovieDetails(tmdbId) ?: error("TMDB has no title with the id $tmdbId.")
+          lookup.fetchMovieDetails(tmdbId)?.let { withImdbId(it) }
+            ?: error("TMDB has no title with the id $tmdbId.")
         )
       }
 
@@ -197,8 +213,16 @@ private constructor(
         year
           ?.let { y -> films.filter { it.year != null && kotlin.math.abs(it.year - y) <= 1 } }
           ?.takeIf { it.isNotEmpty() }
-      (narrowed ?: films).take(3)
+      // TMDB is how the app identifies a film; IMDb is how the *user* looks one up. Search
+      // results carry no IMDb id, so fetch it here rather than showing a TMDB link to whoever
+      // happened to arrive via search — a handful of requests for at most three results.
+      (narrowed ?: films).take(3).map { withImdbId(it) }
     }
+
+  /** Best-effort IMDb id, so a candidate can always offer the link a person expects. */
+  private suspend fun withImdbId(candidate: TitleLookup.Candidate): TitleLookup.Candidate =
+    if (candidate.imdbId != null) candidate
+    else runCatching { lookup.attachImdbId(candidate) }.getOrDefault(candidate)
 
   /** Add a film the user picked from [searchToAdd]'s results. Returns its title. */
   suspend fun addCandidate(candidate: TitleLookup.Candidate): String =
@@ -223,6 +247,43 @@ private constructor(
           )
         )
       candidate.title
+    }
+
+  /**
+   * Add several films at once from typed names — one per line, for a watchlist kept somewhere
+   * with no export at all (a notes app, an email to yourself).
+   *
+   * Nothing is looked up here. Each name is stored as a bare title, exactly as a Google TV import
+   * arrives, and the identification pass that follows every import decides what each one is —
+   * offering a choice where a name is shared. Guessing at this stage would be the one thing worse
+   * than asking. Returns how many new lines were added.
+   */
+  suspend fun addManualTitles(text: String): Int =
+    withContext(Dispatchers.IO) {
+      val entries = PastedTitleList.parse(text)
+      if (entries.isEmpty()) error("No titles found. Put one film per line.")
+
+      for (entry in entries) {
+        database.watchlistDao()
+          .addManual(
+            WatchlistItem(
+              id = WatchlistItem.idFor(null, null, entry.title, entry.year),
+              title = entry.title,
+              year = entry.year,
+            )
+          )
+      }
+      entries.size
+    }
+
+  /**
+   * The user says this really is a film, whatever TMDB thinks. Clears the series verdict and the
+   * review flag together, so it goes straight back to being matched against listings.
+   */
+  suspend fun keepAsFilm(itemId: String) =
+    withContext(Dispatchers.IO) {
+      database.watchlistDao().keepAsFilm(itemId)
+      database.titleCandidateDao().deleteFor(itemId)
     }
 
   /**
@@ -298,7 +359,10 @@ private constructor(
       if (!lookup.isConfigured) return@withContext
       val item = database.watchlistDao().getById(itemId) ?: return@withContext
       val tmdbId = item.tmdbId ?: return@withContext
-      if (item.posterUrl != null) return@withContext
+      // Once per film, whatever we already have. A Trakt import arrives with a poster but no
+      // synopsis and no genres, so gating on a missing poster meant those films were never asked
+      // about at all — and the genre filter had nothing to offer for most of the list.
+      if (item.posterChecked) return@withContext
       if (!inFlightPosters.add(itemId)) return@withContext
 
       try {
@@ -309,6 +373,10 @@ private constructor(
               item.copy(
                 posterUrl = details.posterUrl ?: item.posterUrl,
                 overview = item.overview ?: details.overview,
+                // TMDB genuinely has no artwork for some films. Recording that we asked is what
+                // lets the card stop pretending one is still on its way.
+                posterChecked = true,
+                genres = details.genres.joinToString(",").ifBlank { item.genres },
               )
             )
           )

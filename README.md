@@ -14,19 +14,21 @@ pull to refresh.
 
 ## What it does
 
-- **Syncs your watchlist** from Trakt (automatically, in the background) or from an IMDb /
-  Google TV CSV export. Films remember which lists they came from, so removing one upstream
-  removes it here — and a film on two lists survives being dropped from one.
+- **Syncs your watchlist** from Trakt (automatically, in the background), from an IMDb / Google TV
+  CSV export, or from a pasted list of names. Films remember which lists they came from, so
+  removing one upstream removes it here — and a film on two lists survives being dropped from one.
 - **Identifies bare titles** via TMDB: which year, which of two same-named films, and whether it
-  is a TV series (Google TV exports mix those in; they are hidden, since they never play in
-  cinemas).
+  is a TV series (Google TV exports mix those in). Every import is identified straight away, which
+  is also what merges the same film arriving from two different lists into a single entry.
 - **Checks Stockholm cinemas** for anything on that list — 14 venues on the Filmstaden booking
   platform plus four independents, each one individually switchable. Two months ahead by
   default, since the independents post their repertory programme that far out; adjustable in
   Settings.
-- **Notifies you about the right venue** — cinemas are tagged (Big Screen, Cozy, IMAX) and a film
-  can require one, so a blockbuster only pings you for a big screen and a classic only for a
-  small independent.
+- **Notifies you about the right venue** — cinemas are tagged (Big Screen, Cozy, IMAX, Food &
+  Drink) and a film can require one, so a blockbuster only pings you for a big screen and a
+  classic only for a small independent.
+- **Narrows the list** by source (Trakt, IMDb, Google TV, added by hand) and by genre, on top of
+  search, sorting and a "showing soon" filter.
 - **Shows you the film** — tap a watchlist entry for its poster, synopsis, an IMDb link and which
   lists it came from. Removing it lives here too, as a deliberate second step rather than a
   stray tap in the list.

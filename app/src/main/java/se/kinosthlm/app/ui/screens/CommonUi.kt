@@ -13,15 +13,23 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
+import androidx.compose.material.icons.outlined.ImageNotSupported
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -108,13 +116,31 @@ fun BoxScope.VerticalScrollbar(listState: LazyListState, modifier: Modifier = Mo
 }
 
 /**
- * A poster-shaped grey box that pulses while TMDB is being asked for the real one.
+ * A poster-shaped grey box: pulsing while TMDB is being asked for the real one, and a static
+ * "no image" square once we know there is nothing coming.
  *
- * Reserving the space rather than omitting it also stops the row reflowing the moment a poster
- * arrives, which is what made the list jump around while a large import filled in.
+ * The distinction matters. A film TMDB has no artwork for used to pulse forever, which reads as
+ * a request stuck rather than an answer received. Reserving the space either way also stops the
+ * row reflowing the moment a poster arrives, which is what made the list jump around during a
+ * large import.
  */
 @Composable
-fun PosterPlaceholder(modifier: Modifier = Modifier) {
+fun PosterPlaceholder(modifier: Modifier = Modifier, loading: Boolean = true) {
+  if (!loading) {
+    Box(
+      modifier.background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.10f)),
+      contentAlignment = Alignment.Center,
+    ) {
+      Icon(
+        Icons.Outlined.ImageNotSupported,
+        contentDescription = "No poster available",
+        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+        modifier = Modifier.fillMaxSize(0.4f),
+      )
+    }
+    return
+  }
+
   val transition = rememberInfiniteTransition(label = "poster-placeholder")
   val alpha by
     transition.animateFloat(
@@ -124,6 +150,37 @@ fun PosterPlaceholder(modifier: Modifier = Modifier) {
       label = "poster-placeholder-alpha",
     )
   Box(modifier.background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha)))
+}
+
+/**
+ * The one way this app offers a link out to a film.
+ *
+ * Always IMDb where we have the id — that is the page a person means when they say "look it up" —
+ * and TMDB only as the fallback for a film we have yet to attach an IMDb id to. TMDB is how the
+ * app identifies films internally; it is not what gets put in front of the user by choice.
+ */
+@Composable
+fun ExternalLinkButton(
+  imdbId: String?,
+  tmdbId: Int?,
+  onOpenLink: (String) -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  val url =
+    when {
+      imdbId != null -> "https://www.imdb.com/title/$imdbId/"
+      tmdbId != null -> "https://www.themoviedb.org/movie/$tmdbId"
+      else -> return
+    }
+  OutlinedButton(onClick = { onOpenLink(url) }, modifier = modifier) {
+    Icon(
+      Icons.AutoMirrored.Outlined.OpenInNew,
+      contentDescription = null,
+      modifier = Modifier.size(18.dp),
+    )
+    Spacer(Modifier.width(6.dp))
+    Text(if (imdbId != null) "IMDb" else "TMDB")
+  }
 }
 
 /** Human-readable label for a [WatchlistItem] provenance source id. */

@@ -83,6 +83,11 @@ class TitleLookup(
     val imdbId: String? = null,
     /** TMDB's own popularity score, used to rank which same-named film to offer first. */
     val popularity: Double = 0.0,
+    /**
+     * Genre names, e.g. "Drama". Only the per-film endpoint names them — search results carry
+     * numeric ids against a separate list — so this is empty except after [fetchMovieDetails].
+     */
+    val genres: List<String> = emptyList(),
   ) {
     val isFilm: Boolean get() = type == TYPE_MOVIE
   }
@@ -226,7 +231,16 @@ class TitleLookup(
           ?.let { "$IMAGE_BASE$it" },
       overview = entry.optString("overview").takeIf { it.isNotBlank() },
       popularity = entry.optDouble("popularity", 0.0).takeIf { !it.isNaN() } ?: 0.0,
+      genres = genreNames(entry),
     )
+  }
+
+  /** Genre names, present only on the per-film endpoint. Absent elsewhere, which is fine. */
+  private fun genreNames(entry: JSONObject): List<String> {
+    val array = entry.optJSONArray("genres") ?: return emptyList()
+    return (0 until array.length()).mapNotNull {
+      array.optJSONObject(it)?.optString("name")?.takeIf { name -> name.isNotBlank() }
+    }
   }
 
   private val auth: String get() = "api_key=$apiKey"

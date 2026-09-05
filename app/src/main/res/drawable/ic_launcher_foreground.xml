@@ -1,15 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Adaptive-icon foreground: a film strip.
-  108dp canvas, artwork kept inside the 66dp safe zone (centred, 21dp margins) so no launcher
-  mask crops it. Also used as the monochrome layer, so it is a single flat silhouette.
+
+  The safe zone is a 72dp *circle*, not a 72dp square: a launcher's circular mask clips anything
+  outside it. A 66dp square has a 93dp diagonal, so its corners were being cut off — which is why
+  the strip looked oversized and off-centre in the launcher.
+
+  The artwork is authored at 66dp and scaled to 51.5dp here, the largest square whose diagonal
+  (~73dp) still fits, then translated so it sits centred on the 108dp canvas. Also used as the
+  monochrome layer, so it is a single flat silhouette.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <group android:translateX="21" android:translateY="21">
+    <group
+        android:translateX="28.25"
+        android:translateY="28.25"
+        android:scaleX="0.78"
+        android:scaleY="0.78">
         <path
             android:fillColor="#FFF3E9E9"
             android:pathData="M4,2h58a2,2 0 0,1 2,2v58a2,2 0 0,1 -2,2H4a2,2 0 0,1 -2,-2V4a2,2 0 0,1 2,-2z" />

@@ -129,13 +129,29 @@ interface WatchlistDao {
   /**
    * Remove a film the user no longer wants to see here.
    *
-   * If a source still lists it, the row is kept and suppressed — otherwise the next sync would
-   * simply put it back. Once every source drops it, the row goes for good.
+   * The row is kept and marked suppressed rather than deleted — otherwise the next sync would
+   * simply put it back — and, importantly, its provenance rows are left alone. They are what
+   * makes the tombstone outlive an import of some *other* source: strip them and the entry is by
+   * definition an orphan, so the next [deleteOrphans] anywhere sweeps away the very record that
+   * was keeping the film gone, and it reappears on the following sync.
+   *
+   * Leaving the claims in place also gives the tombstone a natural end: once every source has
+   * genuinely dropped the film, [replaceSource] retires the last claim and the row goes for good.
    */
   @Transaction
   suspend fun removeByUser(itemId: String) {
-    deleteSourceRowsFor(itemId)
     val item = getAll().firstOrNull { it.id == itemId } ?: return
+    // A film only this app ever claimed has no upstream list that could put it back, so there is
+    // nothing for a tombstone to defend against — delete it properly rather than leaving an
+    // invisible row behind for every hand-added film the user changes their mind about.
+    val claims = sourcesFor(itemId).map { it.sourceId }
+    val onlyOurs =
+      claims.all { it == WatchlistItem.SOURCE_MANUAL || it == WatchlistItem.SOURCE_PINNED }
+    if (onlyOurs) {
+      deleteSourceRowsFor(itemId)
+      deleteById(itemId)
+      return
+    }
     insertAll(listOf(item.copy(suppressed = true)))
   }
 
@@ -164,6 +180,15 @@ interface WatchlistDao {
 
   @Query("UPDATE watchlist_items SET requiredVenueTag = :tag WHERE id = :itemId")
   suspend fun setRequiredVenueTag(itemId: String, tag: String?)
+
+  /**
+   * Overrule a "this is a TV series" verdict. TMDB is usually right, but a film sharing its name
+   * with a series resolves the same way, and the user is the one who knows which they meant.
+   */
+  @Query(
+    "UPDATE watchlist_items SET titleType = 'movie', needsReview = 0 WHERE id = :itemId"
+  )
+  suspend fun keepAsFilm(itemId: String)
 
   /** Entries still awaiting the user's choice between several same-named films. */
   @Query("SELECT * FROM watchlist_items WHERE needsReview = 1 ORDER BY title ASC")
@@ -210,6 +235,16 @@ interface ScreeningDao {
    */
   @Query("DELETE FROM screenings WHERE cinemaId IN (:cinemaIds) AND foundAt < :before")
   suspend fun deleteStale(cinemaIds: List<String>, before: Long)
+
+  /**
+   * Forget everything we know about one venue.
+   *
+   * Used when a cinema is switched off: it is no longer polled, so [deleteStale] will never
+   * reach it again and its showings would otherwise sit in the list until each one's date
+   * passed — which is exactly why an unfollowed cinema still turned up under "Showing soon".
+   */
+  @Query("DELETE FROM screenings WHERE cinemaId = :cinemaId")
+  suspend fun deleteForCinema(cinemaId: String)
 
   @Query("DELETE FROM screenings") suspend fun clear()
 }

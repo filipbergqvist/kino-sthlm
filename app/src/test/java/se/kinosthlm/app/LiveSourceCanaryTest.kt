@@ -165,6 +165,93 @@ class LiveSourceCanaryTest {
     assertTrue(screenings.all { it.bookingUrl.contains("/boka/") })
   }
 
+  /**
+   * The check that answers "is this cinema broken, or is nothing I want playing there?"
+   *
+   * Every venue in Stockholm has *something* on in the next fortnight. So a source returning
+   * nothing over that window is a broken adapter, not a quiet fortnight — which is precisely the
+   * question that could not be answered about Bio Capitol from inside the app, where an empty
+   * result and a failed parse look identical.
+   *
+   * Deliberately unfiltered by watchlist: this asks whether we can read the programme at all.
+   */
+  @Test
+  fun `every cinema has screenings within the next two weeks`() = runTest {
+    val fortnight = from.plus(14, ChronoUnit.DAYS)
+    val everything = watchlistOf("anything")
+
+    // Sources that publish a whole programme and let us filter afterwards.
+    val openProgramme =
+      listOf(
+        Triple("Bio Rio", BioRioSource() as CinemaSource, "bio_rio"),
+        Triple("Bio Capitol", CapitolSource(), "bio_capitol"),
+        Triple("Biocafé Tellus", TellusSource(), "bio_tellus"),
+      )
+
+    val empty = mutableListOf<String>()
+    for ((name, source, id) in openProgramme) {
+      val screenings =
+        runCatching {
+            source.fetchScreenings(
+              cinemas = listOf(cinema(id, name, source)),
+              watchlist = everything,
+              from = from,
+              to = fortnight,
+            )
+          }
+          .getOrElse {
+            empty += "$name threw ${it::class.simpleName}: ${it.message}"
+            continue
+          }
+      if (screenings.none { it.startTime.isBefore(fortnight) }) empty += "$name returned nothing"
+    }
+
+    // Skandia and Filmstaden narrow by watchlist *before* fetching detail pages, so handing them
+    // a watchlist of nothing in particular proves nothing. Feed each one what it is itself
+    // advertising, so an empty result really does mean the adapter has stopped working.
+    val skandia = SkandiaSource()
+    val skandiaVenue = cinema("bio_skandia", "Bio Skandia", skandia)
+    val skandiaTitles =
+      skandia
+        .parseIndex(
+          Http.getString("https://bioskandia.se/filmer/", accept = "text/html"),
+          "https://bioskandia.se/filmer/",
+        )
+        .map { it.title }
+    if (skandiaTitles.isEmpty()) {
+      empty += "Bio Skandia listed no films at all"
+    } else {
+      val skandiaShows =
+        skandia.fetchScreenings(
+          cinemas = listOf(skandiaVenue),
+          watchlist = watchlistOf(*skandiaTitles.toTypedArray()),
+          from = from,
+          to = fortnight,
+        )
+      if (skandiaShows.isEmpty()) empty += "Bio Skandia returned nothing for its own listings"
+    }
+
+    val catalogue = Http.getString("https://services.cinema-api.com/movie/scheduled/sv/1/200/false")
+    val onRelease =
+      org.json.JSONObject(catalogue).getJSONArray("items").let { array ->
+        (0 until minOf(array.length(), 10)).map { array.getJSONObject(it).getString("title") }
+      }
+    val filmstaden = FilmstadenSource()
+    val filmstadenShows =
+      filmstaden.fetchScreenings(
+        cinemas = listOf(cinema("filmstaden_sergel", "Filmstaden Sergel", filmstaden, "NCG27927")),
+        watchlist = watchlistOf(*onRelease.toTypedArray()),
+        from = from,
+        to = fortnight,
+      )
+    if (filmstadenShows.isEmpty()) empty += "Filmstaden Sergel returned nothing"
+
+    assertTrue(
+      "No screenings in the next two weeks from: ${empty.joinToString("; ")}",
+      empty.isEmpty(),
+    )
+  }
+
   @Test
   fun `tmdb still identifies films, series and ambiguous titles`() = runTest {
     val lookup = se.kinosthlm.app.data.watchlist.TitleLookup()

@@ -73,10 +73,16 @@ class TitleResolver(private val lookup: TitleLookup = TitleLookup()) {
       when {
         result.candidates.isEmpty() -> failed++
 
+        // Marked as a series *and* put to the user rather than quietly hidden. TMDB is confident
+        // but not infallible — a film sharing its name with a series resolves here too — and a
+        // silently vanished title looks like the import lost it.
         result.isSeries -> {
           series++
           resolutions +=
-            Resolution(item.copy(titleType = WatchlistItem.TYPE_SERIES, needsReview = false))
+            Resolution(
+              item.copy(titleType = WatchlistItem.TYPE_SERIES, needsReview = true),
+              offerable(result.candidates).map { it.asCandidateFor(item.id) },
+            )
         }
 
         else -> {
@@ -116,19 +122,7 @@ class TitleResolver(private val lookup: TitleLookup = TitleLookup()) {
             resolutions +=
               Resolution(
                 item.copy(titleType = WatchlistItem.TYPE_MOVIE, needsReview = true),
-                offerable(result.films).map { candidate ->
-                  TitleCandidate(
-                    id = "${item.id}|${candidate.tmdbId}",
-                    watchlistItemId = item.id,
-                    tmdbId = candidate.tmdbId,
-                    imdbId = candidate.imdbId,
-                    title = candidate.title,
-                    year = candidate.year,
-                    titleType = candidate.type,
-                    posterUrl = candidate.posterUrl,
-                    overview = candidate.overview,
-                  )
-                },
+                offerable(result.films).map { it.asCandidateFor(item.id) },
               )
           }
         }
@@ -215,6 +209,20 @@ class TitleResolver(private val lookup: TitleLookup = TitleLookup()) {
    */
   private fun WatchlistItem.needsLookup(): Boolean =
     imdbId == null && titleType == WatchlistItem.TYPE_UNKNOWN
+
+  /** The stored form of a lookup result, ready for the review sheet. */
+  private fun TitleLookup.Candidate.asCandidateFor(itemId: String) =
+    TitleCandidate(
+      id = "$itemId|$tmdbId",
+      watchlistItemId = itemId,
+      tmdbId = tmdbId,
+      imdbId = imdbId,
+      title = title,
+      year = year,
+      titleType = type,
+      posterUrl = posterUrl,
+      overview = overview,
+    )
 
   private companion object {
     const val TAG = "TitleResolver"

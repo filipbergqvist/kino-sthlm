@@ -36,6 +36,10 @@ data class WatchlistEntry(
   /** Protected from disappearing if its real sources later drop it. */
   val isPinned: Boolean get() = WatchlistItem.SOURCE_PINNED in sources
 
+  /** Actual watchlists this came from; a pin is protection, not provenance. */
+  val realSources: List<String>
+    get() = sources.filter { it != WatchlistItem.SOURCE_PINNED }
+
   /** Still matched and shown, but never pushes a notification. */
   val isMuted: Boolean get() = item.notificationsMuted
 }
@@ -99,12 +103,18 @@ data class UiState(
   val notificationsEnabled: Boolean = true,
   val cinemaFilter: String? = null,
   val showingSoonOnly: Boolean = false,
+  /** Show only films contributed by this source id; null means every source. */
+  val sourceFilter: String? = null,
+  /** Show only films TMDB puts in this genre; null means every genre. */
+  val genreFilter: String? = null,
+  /** Sources that actually contribute something, so the picker offers only real choices. */
+  val availableSources: List<String> = emptyList(),
+  /** Genres present in the watchlist, for the same reason. */
+  val availableGenres: List<String> = emptyList(),
   val watchlistQuery: String = "",
   val watchlistSort: WatchlistSort = WatchlistSort.RECENTLY_ADDED,
   /** Ambiguous titles waiting for the user to pick the right film. */
   val needsReview: List<ReviewEntry> = emptyList(),
-  /** TV series found in the watchlist; hidden from the list because they never play in cinemas. */
-  val seriesCount: Int = 0,
   val isResolving: Boolean = false,
   val resolveProgress: Pair<Int, Int>? = null,
   val traktState: TraktState = TraktState.Disconnected,
@@ -120,6 +130,10 @@ data class UiState(
 ) {
   val failedSources: List<SourceResult> get() = lastReport?.failedSources.orEmpty()
   val isSelecting: Boolean get() = selectedIds.isNotEmpty()
+
+  /** How many of the tucked-away filters are on, so the chip can say so without opening. */
+  val activeFilterCount: Int
+    get() = listOfNotNull(sourceFilter, genreFilter).size
 }
 
 class KinoViewModel(application: Application) : AndroidViewModel(application) {
@@ -132,6 +146,8 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
   private val lastReport = MutableStateFlow<SyncReport?>(null)
   private val cinemaFilter = MutableStateFlow<String?>(null)
   private val showingSoonOnly = MutableStateFlow(false)
+  private val sourceFilter = MutableStateFlow<String?>(null)
+  private val genreFilter = MutableStateFlow<String?>(null)
   private val watchlistQuery = MutableStateFlow("")
   private val watchlistSort = MutableStateFlow(WatchlistSort.RECENTLY_ADDED)
   private val traktState = MutableStateFlow<TraktState>(TraktState.Disconnected)
@@ -158,12 +174,14 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
           repository.upcomingScreenings,
           repository.cinemas,
           repository.watchlistSources,
-          combine(cinemaFilter, showingSoonOnly, watchlistQuery, watchlistSort) {
-            filter,
-            soonOnly,
-            query,
-            sort ->
-            Filters(filter, soonOnly, query, sort)
+          combine(
+            cinemaFilter,
+            showingSoonOnly,
+            watchlistQuery,
+            watchlistSort,
+            combine(sourceFilter, genreFilter) { source, genre -> source to genre },
+          ) { filter, soonOnly, query, sort, narrowing ->
+            Filters(filter, soonOnly, query, sort, narrowing.first, narrowing.second)
           },
         ) { watchlist, screenings, cinemas, sources, filters ->
           Content(watchlist, screenings, cinemas, sources, filters)
@@ -202,12 +220,9 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
         ) { sync, report, trakt, msg, progress ->
           Transient(sync.first, sync.second, sync.third, report, trakt, msg, progress)
         },
-        combine(repository.needingReview, repository.reviewCandidates, repository.seriesCount) {
-          review,
-          candidates,
-          series ->
+        combine(repository.needingReview, repository.reviewCandidates) { review, candidates ->
           val byItem = candidates.groupBy { it.watchlistItemId }
-          Review(review.map { ReviewEntry(it, byItem[it.id].orEmpty()) }, series)
+          Review(review.map { ReviewEntry(it, byItem[it.id].orEmpty()) })
         },
       ) { content, prefs, transient, review ->
         val byMovie = content.screenings.groupBy { it.watchlistMovieId }
@@ -228,6 +243,21 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
             .let {
               if (content.filters.soonOnly) it.filter { entry -> entry.nextScreening != null }
               else it
+            }
+            .let { list ->
+              // "Manual Add" is the absence of a real source rather than a row of its own for
+              // films added by hand and never claimed by a list, so match it that way too.
+              content.filters.source?.let { source ->
+                list.filter { entry ->
+                  source in entry.sources ||
+                    (source == WatchlistItem.SOURCE_MANUAL && entry.realSources.isEmpty())
+                }
+              } ?: list
+            }
+            .let { list ->
+              content.filters.genre?.let { genre ->
+                list.filter { entry -> genre in entry.item.genreList }
+              } ?: list
             }
             .let { list ->
               content.filters.query.trim().takeIf { it.isNotEmpty() }?.let { query ->
@@ -266,6 +296,22 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
           notificationsEnabled = prefs.notifications,
           cinemaFilter = content.filters.cinemaId,
           showingSoonOnly = content.filters.soonOnly,
+          sourceFilter = content.filters.source,
+          genreFilter = content.filters.genre,
+          // Offered options come from what is actually there, so the picker never lists a source
+          // or genre that would filter the list down to nothing.
+          availableSources =
+            buildSet {
+                for (entry in matchable) {
+                  val rows = sourcesByItem[entry.id].orEmpty().map { it.sourceId }
+                  addAll(rows.filter { it != WatchlistItem.SOURCE_PINNED })
+                  if (rows.none { it != WatchlistItem.SOURCE_PINNED }) {
+                    add(WatchlistItem.SOURCE_MANUAL)
+                  }
+                }
+              }
+              .sorted(),
+          availableGenres = matchable.flatMap { it.genreList }.distinct().sorted(),
           watchlistQuery = content.filters.query,
           watchlistSort = content.filters.sort,
           traktState = transient.trakt,
@@ -274,7 +320,6 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
           tmdbRateLimited = repository.isTmdbRateLimited,
           tmdbKey = prefs.tmdbKey,
           needsReview = review.entries,
-          seriesCount = review.seriesCount,
           isResolving = transient.progress != null,
           resolveProgress = transient.progress,
           message = transient.message,
@@ -370,7 +415,9 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
           if (repository.trakt.awaitAuthorization(code)) {
             traktState.value = TraktState.Connected
             message.value = "Trakt connected"
-            sync()
+            // Same reasoning as a CSV import: identify first so a Trakt film already in the list
+            // under a bare title merges into one entry rather than appearing twice.
+            identifyThenSync()
           } else {
             traktState.value = TraktState.Disconnected
             message.value = "Trakt code expired. Try again."
@@ -404,10 +451,39 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
       try {
         val count = repository.importCsv(uri, sourceId)
         message.value = "Imported $count films"
-        sync()
+        identifyThenSync()
       } catch (error: Exception) {
         message.value = error.message ?: "Import failed"
       }
+    }
+  }
+
+  /**
+   * Identify everything the import brought in, then sync.
+   *
+   * A freshly imported title has no id yet, so it is keyed on its name — and the same film
+   * already in the list from Trakt is keyed on its TMDB id. Two rows, two source badges, one
+   * film. They merge the moment identification gives the new one an id, which is why this must
+   * run *now* rather than being left to the sync's own capped pass to chip away at over several
+   * runs. That gap is what put two Terminator 2s in the list.
+   */
+  private suspend fun identifyThenSync() {
+    runIdentification()
+    sync()
+  }
+
+  /** Identify every unidentified title, reporting progress. Returns what it managed. */
+  private suspend fun runIdentification() {
+    if (resolveProgress.value != null) return
+    resolveProgress.value = 0 to 0
+    try {
+      repository.resolveTitles(limit = Int.MAX_VALUE) { done, total ->
+        resolveProgress.value = done to total
+      }
+    } catch (error: Exception) {
+      message.value = "Could not identify titles: ${error.message}"
+    } finally {
+      resolveProgress.value = null
     }
   }
 
@@ -428,7 +504,7 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
       try {
         val count = repository.importImdbPublicList(url)
         message.value = "Imported $count films from IMDb"
-        sync()
+        identifyThenSync()
       } catch (error: Exception) {
         message.value = error.message ?: "IMDb import failed"
       }
@@ -596,13 +672,36 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
             resolveProgress.value = done to total
           }
         message.value =
-          "Identified ${outcome.identified}, ${outcome.series} series hidden, " +
-            "${outcome.ambiguous} need a choice"
+          "Identified ${outcome.identified}, ${outcome.ambiguous + outcome.series} need a choice"
       } catch (error: Exception) {
         message.value = "Could not identify titles: ${error.message}"
       } finally {
         resolveProgress.value = null
       }
+    }
+  }
+
+  /**
+   * Add films from a pasted list of names, one per line, then identify them — for a watchlist
+   * kept somewhere that has no export at all.
+   */
+  fun addManualTitles(text: String) {
+    viewModelScope.launch {
+      try {
+        val count = repository.addManualTitles(text)
+        message.value = "Added $count title(s)"
+        identifyThenSync()
+      } catch (error: Exception) {
+        message.value = error.message ?: "Could not add those titles"
+      }
+    }
+  }
+
+  /** The user says a title we called a TV series is really a film after all. */
+  fun keepAsFilm(itemId: String) {
+    viewModelScope.launch {
+      repository.keepAsFilm(itemId)
+      message.value = "Kept as a film — we'll keep watching for it"
     }
   }
 
@@ -618,6 +717,21 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
 
   fun toggleShowingSoonOnly() {
     showingSoonOnly.value = !showingSoonOnly.value
+  }
+
+  /** Show only films from one watchlist source; null shows every source. */
+  fun setSourceFilter(sourceId: String?) {
+    sourceFilter.value = sourceId
+  }
+
+  /** Show only films in one TMDB genre; null shows every genre. */
+  fun setGenreFilter(genre: String?) {
+    genreFilter.value = genre
+  }
+
+  fun clearFilters() {
+    sourceFilter.value = null
+    genreFilter.value = null
   }
 
   fun setWatchlistQuery(query: String) {
@@ -644,6 +758,8 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
     val soonOnly: Boolean,
     val query: String,
     val sort: WatchlistSort,
+    val source: String? = null,
+    val genre: String? = null,
   )
 
   private data class Content(
@@ -682,7 +798,7 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
     val progress: Pair<Int, Int>?,
   )
 
-  private data class Review(val entries: List<ReviewEntry>, val seriesCount: Int)
+  private data class Review(val entries: List<ReviewEntry>)
 
   /** A lookup result reshaped as the stored candidate [resolveAmbiguity] expects. */
   private fun TitleLookup.Candidate.asTitleCandidate(itemId: String) =

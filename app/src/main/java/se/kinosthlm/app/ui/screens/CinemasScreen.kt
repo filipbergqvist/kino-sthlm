@@ -39,11 +39,22 @@ fun CinemasScreen(
     verticalArrangement = Arrangement.spacedBy(8.dp),
   ) {
     item {
-      Text(
-        "${uiState.cinemas.count { it.isEnabled }} of ${uiState.cinemas.size} cinemas followed",
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-      )
+      Column {
+        Text(
+          "${uiState.cinemas.count { it.isEnabled }} of ${uiState.cinemas.size} cinemas followed",
+          style = MaterialTheme.typography.bodyMedium,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        // The toggle is not a notification switch — it decides whether the venue is looked at
+        // at all, so switching one off also drops the showings already found there.
+        Text(
+          "Switching a cinema off stops it being checked, and clears the screenings we found " +
+            "there. Mute a single film from its own card instead.",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+          modifier = Modifier.padding(top = 4.dp),
+        )
+      }
     }
     items(uiState.cinemas, key = { it.id }) { cinema ->
       CinemaCard(

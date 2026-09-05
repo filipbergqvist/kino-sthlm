@@ -2,6 +2,8 @@ package se.kinosthlm.app.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,7 +17,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.filled.PushPin
@@ -52,7 +53,7 @@ import se.kinosthlm.app.ui.viewmodel.WatchlistEntry
  * venue-tag chips, and rising from the bottom keeps the controls under your thumb instead of
  * re-centring (and so moving) every time the content changes height.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun WatchlistDetailDialog(
   entry: WatchlistEntry,
@@ -87,7 +88,7 @@ fun WatchlistDetailDialog(
                 modifier = posterShape,
               )
             } else {
-              PosterPlaceholder(posterShape)
+              PosterPlaceholder(posterShape, loading = !item.hasNoPoster)
             }
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
@@ -146,8 +147,11 @@ fun WatchlistDetailDialog(
               style = MaterialTheme.typography.labelMedium,
               color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Row(
+            // Wraps: with a fourth venue tag there are five chips here, which is more than fits
+            // on one line of a phone.
+            FlowRow(
               horizontalArrangement = Arrangement.spacedBy(6.dp),
+              verticalArrangement = Arrangement.spacedBy(4.dp),
               modifier = Modifier.padding(top = 4.dp).testTag("venue_tag_row_${item.id}"),
             ) {
               FilterChip(
@@ -178,20 +182,12 @@ fun WatchlistDetailDialog(
 
           Spacer(Modifier.height(20.dp))
           Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (item.imdbId != null) {
-              OutlinedButton(
-                onClick = { onOpenImdb("https://www.imdb.com/title/${item.imdbId}/") },
-                modifier = Modifier.testTag("open_imdb"),
-              ) {
-                Icon(
-                  Icons.AutoMirrored.Default.OpenInNew,
-                  contentDescription = null,
-                  modifier = Modifier.size(18.dp),
-                )
-                Spacer(Modifier.size(6.dp))
-                Text("IMDb")
-              }
-            }
+            ExternalLinkButton(
+              imdbId = item.imdbId,
+              tmdbId = item.tmdbId,
+              onOpenLink = onOpenImdb,
+              modifier = Modifier.testTag("open_imdb"),
+            )
             OutlinedButton(
               onClick = {
                 onRemove(item.id)

@@ -28,6 +28,8 @@ import se.kinosthlm.app.data.net.Http
 class TraktProvider(
   context: Context,
   private val tokens: TraktTokenStore = TraktTokenStore(context),
+  /** Overridden only by tests, which point it at a local server. */
+  private val apiBase: String = API,
 ) : WatchlistProvider {
 
   override val id = WatchlistItem.SOURCE_TRAKT
@@ -52,7 +54,7 @@ class TraktProvider(
     val existing = tokens.pendingCode()
     if (existing != null) return@withContext existing
 
-    val response = post("$API/oauth/device/code", JSONObject().put("client_id", CLIENT_ID))
+    val response = post("$apiBase/oauth/device/code", JSONObject().put("client_id", CLIENT_ID))
     DeviceCode(
       deviceCode = response.getString("device_code"),
       userCode = response.getString("user_code"),
@@ -89,7 +91,7 @@ class TraktProvider(
         .put("client_secret", CLIENT_SECRET)
 
       val request = Request.Builder()
-        .url("$API/oauth/device/token")
+        .url("$apiBase/oauth/device/token")
         .header("User-Agent", Http.USER_AGENT)
         .post(body.toString().toRequestBody(JSON))
         .build()
@@ -144,11 +146,32 @@ class TraktProvider(
 
   // --- Sync ---
 
+  /**
+   * Fetch the whole movie watchlist, a page at a time.
+   *
+   * The endpoint is documented as "optional pagination", which is easy to read as "returns
+   * everything if you do not ask" — it does not. Left unpaged it caps the response, and a
+   * watchlist longer than that silently arrives truncated: the app looked like it had imported
+   * fine and simply never mentioned the rest. So ask explicitly and keep asking until a page
+   * comes back short, which is the only reliable end-of-list signal across Trakt's variants.
+   */
   override suspend fun sync(): List<WatchlistItem> = withContext(Dispatchers.IO) {
     val token = validAccessToken() ?: error("Trakt is not connected")
 
+    val items = mutableListOf<WatchlistItem>()
+    var page = 1
+    while (page <= MAX_PAGES) {
+      val entries = fetchWatchlistPage(token, page)
+      items += entries
+      if (entries.size < PAGE_SIZE) break
+      page++
+    }
+    items.distinctBy { it.id }
+  }
+
+  private fun fetchWatchlistPage(token: String, page: Int): List<WatchlistItem> {
     val request = Request.Builder()
-      .url("$API/users/me/watchlist/movies")
+      .url("$apiBase/users/me/watchlist/movies?page=$page&limit=$PAGE_SIZE")
       .header("User-Agent", Http.USER_AGENT)
       .header("Content-Type", "application/json")
       .header("trakt-api-version", "2")
@@ -163,7 +186,7 @@ class TraktProvider(
     }
 
     val entries = JSONArray(json)
-    (0 until entries.length()).mapNotNull { index ->
+    return (0 until entries.length()).mapNotNull { index ->
       val movie = entries.optJSONObject(index)?.optJSONObject("movie") ?: return@mapNotNull null
       val title = movie.optString("title").takeIf { it.isNotBlank() } ?: return@mapNotNull null
       val year = movie.optInt("year").takeIf { it > 0 }
@@ -181,7 +204,7 @@ class TraktProvider(
         tmdbId = tmdbId,
         traktId = ids?.optInt("trakt")?.takeIf { it > 0 },
       )
-    }.distinctBy { it.id }
+    }
   }
 
   /** Refresh the access token before it expires, so a background sync never fails on staleness. */
@@ -191,7 +214,7 @@ class TraktProvider(
     val refresh = tokens.refreshToken ?: return current
     return runCatching {
       val response = post(
-        "$API/oauth/token",
+        "$apiBase/oauth/token",
         JSONObject()
           .put("refresh_token", refresh)
           .put("client_id", CLIENT_ID)
@@ -230,6 +253,12 @@ class TraktProvider(
     private const val TAG = "TraktProvider"
     private const val API = "https://api.trakt.tv"
     private val JSON = "application/json".toMediaType()
+
+    /** Trakt's documented maximum page size; anything larger is clamped to this anyway. */
+    private const val PAGE_SIZE = 100
+
+    /** 10,000 films is well past any real watchlist, and stops a paging bug looping forever. */
+    private const val MAX_PAGES = 100
 
     val CLIENT_ID: String = BuildConfig.TRAKT_CLIENT_ID
     val CLIENT_SECRET: String = BuildConfig.TRAKT_CLIENT_SECRET

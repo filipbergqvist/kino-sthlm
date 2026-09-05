@@ -4,6 +4,9 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.SQLiteConnection
+import androidx.sqlite.execSQL
 import se.kinosthlm.app.data.model.Cinema
 import se.kinosthlm.app.data.model.NotificationLog
 import se.kinosthlm.app.data.model.Screening
@@ -27,7 +30,7 @@ import se.kinosthlm.app.data.source.TellusSource
     WatchlistSource::class,
     ScreeningTitleCache::class,
   ],
-  version = 8,
+  version = 9,
   exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -46,6 +49,24 @@ abstract class AppDatabase : RoomDatabase() {
   companion object {
     @Volatile private var INSTANCE: AppDatabase? = null
 
+    /**
+     * Two new columns on the watchlist, and nothing else — so this one is written out properly
+     * rather than left to the destructive fallback. A watchlist is now hundreds of films behind a
+     * Trakt authorisation and a couple of CSV imports; wiping it to add a boolean is not a fair
+     * trade any more.
+     */
+    private val MIGRATION_8_9 =
+      object : Migration(8, 9) {
+        override fun migrate(connection: SQLiteConnection) {
+          connection.execSQL(
+            "ALTER TABLE watchlist_items ADD COLUMN posterChecked INTEGER NOT NULL DEFAULT 0"
+          )
+          connection.execSQL(
+            "ALTER TABLE watchlist_items ADD COLUMN genres TEXT NOT NULL DEFAULT ''"
+          )
+        }
+      }
+
     fun getDatabase(context: Context): AppDatabase =
       INSTANCE
         ?: synchronized(this) {
@@ -55,9 +76,10 @@ abstract class AppDatabase : RoomDatabase() {
                 AppDatabase::class.java,
                 "kinosthlm.db",
               )
-              // Pre-1.0: the cinema list is reference data we re-seed on every launch, and
-              // screenings are re-fetched, so throwing the schema away costs nothing but a
-              // watchlist re-import. Replace with real migrations once released.
+              .addMigrations(MIGRATION_8_9)
+              // Still the fallback for the older pre-release versions, which have no migration
+              // path written for them. The cinema list re-seeds and screenings re-fetch, so the
+              // only real cost is a watchlist re-import.
               .fallbackToDestructiveMigration(dropAllTables = true)
               .build()
               .also { INSTANCE = it }
@@ -107,7 +129,7 @@ abstract class AppDatabase : RoomDatabase() {
           websiteUrl = "https://www.capitolbio.se",
           sourceId = CapitolSource.SOURCE_ID,
           specialty = "Bistro cinema; 35mm, classics and dine-in screenings",
-          tags = Cinema.TAG_COZY,
+          tags = "${Cinema.TAG_COZY},${Cinema.TAG_FOOD_DRINK}",
         ),
         Cinema(
           id = BioRioSource.SOURCE_ID,
@@ -116,8 +138,8 @@ abstract class AppDatabase : RoomDatabase() {
           address = "Hornstulls strand 3",
           websiteUrl = "https://www.biorio.se",
           sourceId = BioRioSource.SOURCE_ID,
-          specialty = "Independent Hornstull cinema; arthouse, docs and retrospectives",
-          tags = Cinema.TAG_COZY,
+          specialty = "Independent Hornstull cinema with a full restaurant and bar",
+          tags = "${Cinema.TAG_COZY},${Cinema.TAG_FOOD_DRINK}",
         ),
         Cinema(
           id = TellusSource.SOURCE_ID,

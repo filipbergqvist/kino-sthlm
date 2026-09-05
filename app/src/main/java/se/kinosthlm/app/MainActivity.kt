@@ -57,12 +57,14 @@ import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import se.kinosthlm.app.data.model.WatchlistItem
 import se.kinosthlm.app.ui.screens.AddFilmDialog
+import se.kinosthlm.app.ui.screens.BatchAddDialog
 import se.kinosthlm.app.ui.screens.CinemasScreen
 import se.kinosthlm.app.ui.screens.ImdbListDialog
 import se.kinosthlm.app.ui.screens.ReviewDialog
 import se.kinosthlm.app.ui.screens.ScheduleScreen
 import se.kinosthlm.app.ui.screens.SettingsScreen
 import se.kinosthlm.app.ui.screens.WatchlistDetailDialog
+import se.kinosthlm.app.ui.screens.WatchlistFiltersSheet
 import se.kinosthlm.app.ui.screens.WatchlistScreen
 import se.kinosthlm.app.ui.theme.KinoSthlmTheme
 import se.kinosthlm.app.ui.viewmodel.KinoViewModel
@@ -100,6 +102,8 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
   var showImdbListDialog by remember { mutableStateOf(false) }
   var showReviewDialog by remember { mutableStateOf(false) }
   var showAddDialog by remember { mutableStateOf(false) }
+  var showBatchAddDialog by remember { mutableStateOf(false) }
+  var showFiltersSheet by remember { mutableStateOf(false) }
   // Bulk mute/unmute overwrites whatever each film was set to individually, and bulk remove is
   // just as blunt, so both ask first.
   var pendingBulkAction by remember { mutableStateOf<BulkAction?>(null) }
@@ -254,6 +258,7 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
             onOpenDetail = { detailEntryId = it.item.id },
             onQueryChange = { viewModel.setWatchlistQuery(it) },
             onCycleSort = { viewModel.cycleWatchlistSort() },
+            onOpenFilters = { showFiltersSheet = true },
             onStartSelecting = { viewModel.startSelecting(it) },
             onToggleSelected = { viewModel.toggleSelected(it) },
             onPosterNeeded = { viewModel.onPosterNeeded(it) },
@@ -285,6 +290,7 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
               pickCsv.launch(CSV_MIME_TYPES)
             },
             onImportImdbList = { showImdbListDialog = true },
+            onBatchAdd = { showBatchAddDialog = true },
             onExportCsv = { saveCsv.launch("kinosthlm-watchlist.csv") },
             onSetAutoSync = { viewModel.setAutoSync(it) },
             onSetInterval = { viewModel.setSyncInterval(it) },
@@ -343,9 +349,25 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
       entries = uiState.needsReview,
       onChoose = { itemId, candidate -> viewModel.chooseCandidate(itemId, candidate) },
       onResolveByLink = { itemId, link -> viewModel.resolveByLink(itemId, link) },
+      onKeepAsFilm = { viewModel.keepAsFilm(it) },
       onRemove = { viewModel.removeFilm(it) },
       onOpenLink = openUrl,
       onDismiss = { showReviewDialog = false },
+    )
+  }
+  if (showFiltersSheet) {
+    WatchlistFiltersSheet(
+      uiState = uiState,
+      onSetSource = { viewModel.setSourceFilter(it) },
+      onSetGenre = { viewModel.setGenreFilter(it) },
+      onClear = { viewModel.clearFilters() },
+      onDismiss = { showFiltersSheet = false },
+    )
+  }
+  if (showBatchAddDialog) {
+    BatchAddDialog(
+      onDismiss = { showBatchAddDialog = false },
+      onAdd = { viewModel.addManualTitles(it) },
     )
   }
   if (showImdbListDialog) {

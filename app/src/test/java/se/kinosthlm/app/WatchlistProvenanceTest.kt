@@ -155,12 +155,29 @@ class WatchlistProvenanceTest {
   fun `re-adding a manually removed film by hand brings it back`() = runTest {
     dao.addManual(film("a", "Metropolis"))
     dao.removeByUser("a")
-    assertTrue(dao.getAll().single { it.id == "a" }.suppressed)
+    // Nothing upstream claims a hand-added film, so there is no sync that could put it back and
+    // therefore no reason to keep a tombstone: it goes properly rather than lingering hidden.
+    assertTrue(dao.getAll().none { it.id == "a" })
 
     dao.addManual(film("a", "Metropolis"))
 
-    assertTrue(!dao.getAll().single { it.id == "a" }.suppressed)
+    val readded = dao.getAll().single { it.id == "a" }
+    assertTrue(!readded.suppressed)
+    assertTrue(readded.isMatchable)
   }
+
+  @Test
+  fun `removing a film a real list still carries keeps it hidden rather than deleting it`() =
+    runTest {
+      dao.replaceSource(WatchlistItem.SOURCE_TRAKT, listOf(film("a", "Metropolis")))
+
+      dao.removeByUser("a")
+
+      // The tombstone is what stops the next Trakt sync putting it straight back.
+      val hidden = dao.getAll().single { it.id == "a" }
+      assertTrue(hidden.suppressed)
+      assertTrue(!hidden.isMatchable)
+    }
 
   // --- Pinning ---
 

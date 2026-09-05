@@ -47,6 +47,7 @@ fun SettingsScreen(
   onImportImdbCsv: () -> Unit,
   onImportGoogleTvCsv: () -> Unit,
   onImportImdbList: () -> Unit,
+  onBatchAdd: () -> Unit,
   onExportCsv: () -> Unit,
   onSetAutoSync: (Boolean) -> Unit,
   onSetInterval: (Long) -> Unit,
@@ -140,10 +141,8 @@ fun SettingsScreen(
         SettingRow("Google TV", "Import a Google Takeout CSV") {
           TextButton(onClick = onImportGoogleTvCsv) { Text("Import") }
         }
-        SettingRow("Export", "A CSV in Trakt's import format") {
-          TextButton(onClick = onExportCsv, modifier = Modifier.testTag("export_csv")) {
-            Text("Export")
-          }
+        SettingRow("Paste a list", "For a watchlist kept somewhere with no export") {
+          TextButton(onClick = onBatchAdd, modifier = Modifier.testTag("batch_add")) { Text("Paste") }
         }
       }
     }
@@ -219,6 +218,18 @@ fun SettingsScreen(
             Text(if (uiState.isResolving) "Identifying…" else "Identify titles")
           }
         }
+        // The same bar the watchlist shows, right under the buttons that start the work — you
+        // should not have to change tabs to find out whether the thing you just pressed is
+        // running.
+        syncStatusText(uiState)?.let { status ->
+          Text(
+            status,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 8.dp),
+          )
+          SyncProgressBar(uiState, modifier = Modifier.padding(top = 4.dp))
+        }
         if (!uiState.tmdbConfigured) {
           Text(
             "No TMDB API key — titles, posters, descriptions and manual add all need one. " +
@@ -261,6 +272,25 @@ fun SettingsScreen(
         }
         OutlinedButton(onClick = onTestNotification, modifier = Modifier.testTag("test_notif")) {
           Text("Send a test notification")
+        }
+      }
+    }
+
+    // Last thing before About: exporting is what you do once, when leaving or backing up, not
+    // something to scroll past every time you come here to change a setting.
+    item {
+      Section("Export") {
+        Text(
+          "Write your watchlist out as a CSV in Trakt's import format. Films with no IMDb or " +
+            "TMDB id are left out, since that id is what Trakt matches on.",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedButton(
+          onClick = onExportCsv,
+          modifier = Modifier.padding(top = 8.dp).testTag("export_csv"),
+        ) {
+          Text("Export CSV")
         }
       }
     }

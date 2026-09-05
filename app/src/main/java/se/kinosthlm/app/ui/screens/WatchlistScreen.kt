@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.PushPin
@@ -82,6 +84,7 @@ fun WatchlistScreen(
   onOpenDetail: (WatchlistEntry) -> Unit,
   onQueryChange: (String) -> Unit,
   onCycleSort: () -> Unit,
+  onOpenFilters: () -> Unit,
   onStartSelecting: (String) -> Unit,
   onToggleSelected: (String) -> Unit,
   onPosterNeeded: (String) -> Unit,
@@ -103,7 +106,10 @@ fun WatchlistScreen(
     )
   }
 
-  Box(modifier.fillMaxWidth()) {
+  // Fills the pane, not just its width: the buttons below align to this Box's bottom edge, and
+  // with only width filled that edge is wherever the list happens to end — halfway up the screen
+  // when the list is short, which is exactly where the Add button used to float.
+  Box(modifier.fillMaxSize()) {
     LazyColumn(
       Modifier.fillMaxWidth(),
       state = listState,
@@ -114,17 +120,6 @@ fun WatchlistScreen(
 
       if (uiState.needsReview.isNotEmpty()) {
         item { ReviewBanner(count = uiState.needsReview.size, onReview = onReview) }
-      }
-
-      // Below the review banner rather than in the filter row, which it was making too wide.
-      if (uiState.seriesCount > 0) {
-        item {
-          Text(
-            "${uiState.seriesCount} TV series hidden",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-        }
       }
 
       if (uiState.hasFilms) {
@@ -142,6 +137,9 @@ fun WatchlistScreen(
                 }
               }
             },
+            // Fully rounded, so the field matches the chips beneath it and the cards around it
+            // rather than being the one square-shouldered control on the screen.
+            shape = RoundedCornerShape(28.dp),
             singleLine = true,
           )
         }
@@ -156,6 +154,26 @@ fun WatchlistScreen(
               onClick = onToggleShowingSoon,
               label = { Text("Showing soon") },
               modifier = Modifier.testTag("filter_showing_soon"),
+            )
+            // Source and genre live behind this rather than as two more chips: the row is only
+            // so wide, and both are pickers rather than on/off switches.
+            FilterChip(
+              selected = uiState.activeFilterCount > 0,
+              onClick = onOpenFilters,
+              label = {
+                Text(
+                  if (uiState.activeFilterCount > 0) "Filters (${uiState.activeFilterCount})"
+                  else "Filters"
+                )
+              },
+              leadingIcon = {
+                Icon(
+                  Icons.Default.FilterList,
+                  contentDescription = null,
+                  modifier = Modifier.size(18.dp),
+                )
+              },
+              modifier = Modifier.testTag("open_filters"),
             )
             // One chip naming the whole order, rather than a field plus a direction arrow: two
             // controls plus "Add" made this row wide enough to wrap on a long label.
@@ -188,6 +206,7 @@ fun WatchlistScreen(
             title =
               when {
                 uiState.watchlistQuery.isNotEmpty() -> "No matches"
+                uiState.activeFilterCount > 0 -> "Nothing matches those filters"
                 uiState.showingSoonOnly -> "Nothing scheduled yet"
                 else -> "No films synced yet"
               },
@@ -195,6 +214,13 @@ fun WatchlistScreen(
               when {
                 uiState.watchlistQuery.isNotEmpty() ->
                   "Nothing in your watchlist matches \"${uiState.watchlistQuery}\"."
+                uiState.activeFilterCount > 0 ->
+                  listOfNotNull(
+                      uiState.sourceFilter?.let { "from ${sourceLabel(it)}" },
+                      uiState.genreFilter?.let { "in $it" },
+                    )
+                    .joinToString(" and ")
+                    .let { "No films $it. Clear the filters to see everything again." }
                 uiState.showingSoonOnly ->
                   "None of your films have a Stockholm screening in the window yet. " +
                     "You will get a notification the moment one is announced."
@@ -257,16 +283,12 @@ private fun SyncWidget(uiState: UiState, onSync: () -> Unit, onOpenSources: () -
             fontWeight = FontWeight.SemiBold,
           )
           Text(
-            when {
-              uiState.isResolving -> {
-                val (done, total) = uiState.resolveProgress ?: (0 to 0)
-                if (total > 0) "Identifying titles… $done of $total" else "Identifying titles…"
-              }
-              uiState.isSyncing -> uiState.syncStep ?: "Syncing…"
-              uiState.lastSyncAt > 0L ->
+            syncStatusText(uiState)
+              ?: if (uiState.lastSyncAt > 0L) {
                 "Last synced ${NotificationHelper.formatTime(uiState.lastSyncAt)}"
-              else -> "Not synced yet"
-            },
+              } else {
+                "Not synced yet"
+              },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
           )
@@ -282,17 +304,12 @@ private fun SyncWidget(uiState: UiState, onSync: () -> Unit, onOpenSources: () -
         }
       }
 
-      if (uiState.isResolving) {
-        val (done, total) = uiState.resolveProgress ?: (0 to 0)
+      // The same bar for both jobs: identification can count what it has left, a sync cannot, so
+      // one runs determinate and the other sweeps. Either way something on screen is moving for
+      // as long as the app is busy.
+      if (uiState.isResolving || uiState.isSyncing) {
         Spacer(Modifier.height(8.dp))
-        if (total > 0) {
-          LinearProgressIndicator(
-            progress = { done.toFloat() / total },
-            modifier = Modifier.fillMaxWidth(),
-          )
-        } else {
-          LinearProgressIndicator(Modifier.fillMaxWidth())
-        }
+        SyncProgressBar(uiState)
       }
 
       if (uiState.lastSyncSummary.isNotBlank() && !uiState.isSyncing) {
@@ -338,6 +355,37 @@ private fun SyncWidget(uiState: UiState, onSync: () -> Unit, onOpenSources: () -
     }
   }
 }
+
+/**
+ * Progress for whichever long job is running — determinate while identifying titles, since that
+ * one knows how many are left, indeterminate while syncing, which does not.
+ *
+ * Public so Settings can show the same bar next to its own Identify and Sync buttons: pressing a
+ * button on one screen and having to go to another to see it working is its own small bug.
+ */
+@Composable
+fun SyncProgressBar(uiState: UiState, modifier: Modifier = Modifier) {
+  val (done, total) = uiState.resolveProgress ?: (0 to 0)
+  if (uiState.isResolving && total > 0) {
+    LinearProgressIndicator(
+      progress = { done.toFloat() / total },
+      modifier = modifier.fillMaxWidth().testTag("progress_bar"),
+    )
+  } else {
+    LinearProgressIndicator(modifier.fillMaxWidth().testTag("progress_bar"))
+  }
+}
+
+/** What the app is doing right now, in words, for whichever job is running. */
+fun syncStatusText(uiState: UiState): String? =
+  when {
+    uiState.isResolving -> {
+      val (done, total) = uiState.resolveProgress ?: (0 to 0)
+      if (total > 0) "Identifying titles… $done of $total" else "Identifying titles…"
+    }
+    uiState.isSyncing -> uiState.syncStep ?: "Syncing…"
+    else -> null
+  }
 
 @Composable
 private fun ReviewBanner(count: Int, onReview: () -> Unit) {
@@ -429,6 +477,13 @@ private fun WatchlistCardContent(
     Column(modifier.padding(16.dp)) {
       Row(verticalAlignment = Alignment.Top) {
         val posterShape = Modifier.size(width = 48.dp, height = 72.dp).clip(RoundedCornerShape(6.dp))
+        // Ask TMDB about this film only now that its card is actually on screen, so a long list
+        // fills in what you are looking at instead of what happens to be first in the database.
+        // Idempotent, so recomposition costs nothing — and not gated on a missing poster, since
+        // a film that arrived from Trakt with artwork still has no synopsis or genres.
+        if (!entry.item.posterChecked) {
+          LaunchedEffect(entry.item.id) { onPosterNeeded(entry.item.id) }
+        }
         if (entry.item.posterUrl != null) {
           AsyncImage(
             model = entry.item.posterUrl,
@@ -437,11 +492,7 @@ private fun WatchlistCardContent(
             modifier = posterShape,
           )
         } else {
-          // Ask for this film's poster only now that its card is actually on screen, so a long
-          // list fills in what you are looking at instead of what happens to be first in the
-          // database. Idempotent, so recomposition costs nothing.
-          LaunchedEffect(entry.item.id) { onPosterNeeded(entry.item.id) }
-          PosterPlaceholder(posterShape)
+          PosterPlaceholder(posterShape, loading = !entry.item.hasNoPoster)
         }
         Spacer(Modifier.width(12.dp))
 
