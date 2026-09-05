@@ -130,13 +130,16 @@ class TraktProvider(
       val year = movie.optInt("year").takeIf { it > 0 }
       val ids = movie.optJSONObject("ids")
       val imdbId = ids?.optString("imdb")?.takeIf { it.startsWith("tt") }
+      val tmdbId = ids?.optInt("tmdb")?.takeIf { it > 0 }
 
       WatchlistItem(
-        id = WatchlistItem.idFor(imdbId, title, year),
+        // Trakt hands back the TMDB id directly, so entries arrive already on the standardized
+        // key — no separate resolution pass needed, unlike CSV imports.
+        id = WatchlistItem.idFor(tmdbId, imdbId, title, year),
         title = title,
         year = year,
         imdbId = imdbId,
-        tmdbId = ids?.optInt("tmdb")?.takeIf { it > 0 },
+        tmdbId = tmdbId,
         traktId = ids?.optInt("trakt")?.takeIf { it > 0 },
       )
     }.distinctBy { it.id }

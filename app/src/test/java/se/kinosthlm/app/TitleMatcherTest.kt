@@ -18,7 +18,7 @@ class TitleMatcherTest {
 
   private fun film(title: String, year: Int? = null, imdbId: String? = null) =
     WatchlistItem(
-      id = WatchlistItem.idFor(imdbId, title, year),
+      id = WatchlistItem.idFor(null, imdbId, title, year),
       title = title,
       year = year,
       imdbId = imdbId,

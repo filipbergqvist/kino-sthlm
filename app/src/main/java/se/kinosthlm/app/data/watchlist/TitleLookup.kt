@@ -99,6 +99,26 @@ class TitleLookup(
   }
 
   /**
+   * Best-effort single TMDB match for a cinema listing's raw title.
+   *
+   * This is the other half of "standardize on TMDB id": [lookup] identifies what a *watchlist*
+   * entry is, this identifies what a *cinema screening* is, and matching becomes comparing the
+   * two ids instead of comparing strings. Conservative like the rest of this class — returns
+   * null rather than guessing when a title is shared by several films and there is no year to
+   * separate them, so the caller falls back to text matching for exactly that screening.
+   */
+  suspend fun resolveBestMatch(title: String, year: Int? = null): Candidate? {
+    if (!isConfigured) return null
+    val result = runCatching { lookup(title) }.getOrNull() ?: return null
+    val films = result.films
+    if (films.isEmpty()) return null
+    if (films.size == 1) return films.single()
+
+    val byYear = year?.let { films.filter { film -> film.year != null && kotlin.math.abs(film.year - it) <= 1 } }
+    return byYear?.singleOrNull()
+  }
+
+  /**
    * Resolve an IMDb id straight to its film.
    *
    * This is why adding by hand takes a link rather than a typed title and year: the entry

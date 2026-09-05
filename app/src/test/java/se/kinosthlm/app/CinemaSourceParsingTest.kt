@@ -61,7 +61,7 @@ class CinemaSourceParsingTest {
       val watchlist =
         listOf(
           WatchlistItem(
-            id = WatchlistItem.idFor(null, title, year),
+            id = WatchlistItem.idFor(null, null, title, year),
             title = title,
             year = year,
           )

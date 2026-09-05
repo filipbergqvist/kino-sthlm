@@ -7,7 +7,7 @@ import androidx.room.PrimaryKey
 /** A film the user wants to see, imported from Trakt / IMDb / Google TV or added by hand. */
 @Entity(tableName = "watchlist_items")
 data class WatchlistItem(
-  /** Stable synthetic key. Prefer "imdb:tt0083658", else "title:<slug>-<year>". */
+  /** Stable synthetic key. Prefer "tmdb:603", else "imdb:tt0083658", else "title:<slug>-<year>". */
   @PrimaryKey val id: String,
   val title: String,
   /** Original-language title when it differs from [title]; improves matching. */
@@ -53,12 +53,20 @@ data class WatchlistItem(
     const val TYPE_SERIES = "series"
     const val TYPE_UNKNOWN = "unknown"
 
-    fun idFor(imdbId: String?, title: String, year: Int?): String =
-      if (!imdbId.isNullOrBlank()) {
-        "imdb:$imdbId"
-      } else {
-        val slug = title.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
-        "title:$slug${year?.let { "-$it" } ?: ""}"
+    /**
+     * The watchlist's standardized key. TMDB id first — it is what links a watchlist entry to a
+     * cinema screening (see [se.kinosthlm.app.data.match.ScreeningMatcher]) — then IMDb id for
+     * entries not yet resolved against TMDB, then a title/year fallback for the brief window
+     * before either is known.
+     */
+    fun idFor(tmdbId: Int?, imdbId: String?, title: String, year: Int?): String =
+      when {
+        tmdbId != null -> "tmdb:$tmdbId"
+        !imdbId.isNullOrBlank() -> "imdb:$imdbId"
+        else -> {
+          val slug = title.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
+          "title:$slug${year?.let { "-$it" } ?: ""}"
+        }
       }
   }
 }

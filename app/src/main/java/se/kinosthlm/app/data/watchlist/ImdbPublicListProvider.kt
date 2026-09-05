@@ -60,7 +60,8 @@ class ImdbPublicListProvider(private val listIdOrUrl: String) : WatchlistProvide
         if (imdbId != null && !title.isNullOrBlank() && isMovie) {
           val year = node.optJSONObject("releaseYear")?.optInt("year")?.takeIf { it > 1800 }
           into += WatchlistItem(
-            id = WatchlistItem.idFor(imdbId, title, year),
+            // No TMDB id from this source either; TitleResolver backfills it afterwards.
+            id = WatchlistItem.idFor(tmdbId = null, imdbId, title, year),
             title = title,
             year = year,
             imdbId = imdbId,

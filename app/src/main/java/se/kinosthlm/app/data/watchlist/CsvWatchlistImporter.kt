@@ -69,7 +69,9 @@ object CsvWatchlistImporter {
         }
 
         WatchlistItem(
-          id = WatchlistItem.idFor(imdbId, title, year),
+          // No TMDB id at parse time — CSV rows only ever carry IMDb ids. TitleResolver
+          // backfills the TMDB id afterwards and re-keys the row onto it.
+          id = WatchlistItem.idFor(tmdbId = null, imdbId, title, year),
           title = title,
           year = year,
           imdbId = imdbId,

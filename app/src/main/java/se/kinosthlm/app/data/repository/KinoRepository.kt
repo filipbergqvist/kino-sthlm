@@ -10,8 +10,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import se.kinosthlm.app.data.local.AppDatabase
-import se.kinosthlm.app.data.match.MatchCandidate
-import se.kinosthlm.app.data.match.TitleMatcher
+import se.kinosthlm.app.data.match.ScreeningMatcher
 import se.kinosthlm.app.data.model.Cinema
 import se.kinosthlm.app.data.model.NotificationLog
 import se.kinosthlm.app.data.model.Screening
@@ -132,10 +131,11 @@ private constructor(
       database.watchlistDao()
         .addManual(
           WatchlistItem(
-            id = WatchlistItem.idFor(candidate.imdbId, candidate.title, candidate.year),
+            id = WatchlistItem.idFor(candidate.tmdbId, candidate.imdbId, candidate.title, candidate.year),
             title = candidate.title,
             year = candidate.year,
             imdbId = candidate.imdbId,
+            tmdbId = candidate.tmdbId,
             posterUrl = candidate.posterUrl,
             titleType = WatchlistItem.TYPE_MOVIE,
           )
@@ -171,16 +171,34 @@ private constructor(
     withContext(Dispatchers.IO) {
       val before = database.watchlistDao().getAll()
       val outcome = resolver.resolve(before, limit, onProgress)
-      for (resolution in outcome.resolutions) {
-        val original = before.first { it.id == resolution.item.id || it.id == resolution.oldId }
-        // Identification can change an entry's key, so route it through the move.
-        database.watchlistDao().reIdentify(original.id, resolution.item)
-      }
-      val candidates = outcome.resolutions.flatMap { it.candidates }
-      if (candidates.isNotEmpty()) database.titleCandidateDao().insertAll(candidates)
-      database.titleCandidateDao().deleteOrphans()
+      applyResolutions(outcome.resolutions, before)
       outcome
     }
+
+  /**
+   * Give a TMDB id to entries that already have an IMDb id but not yet a TMDB one — IMDb CSV and
+   * public-list imports, which never otherwise touch TMDB.
+   */
+  private suspend fun backfillTmdbIds(limit: Int = RESOLVE_PER_RUN) {
+    val before = database.watchlistDao().getAll()
+    val resolutions = resolver.backfillTmdbIds(before, limit)
+    applyResolutions(resolutions, before)
+  }
+
+  /** Move each resolved entry onto its (possibly new) key and persist any review candidates. */
+  private suspend fun applyResolutions(
+    resolutions: List<TitleResolver.Resolution>,
+    before: List<WatchlistItem>,
+  ) {
+    for (resolution in resolutions) {
+      val original = before.first { it.id == resolution.item.id || it.id == resolution.oldId }
+      // Identification can change an entry's key, so route it through the move.
+      database.watchlistDao().reIdentify(original.id, resolution.item)
+    }
+    val candidates = resolutions.flatMap { it.candidates }
+    if (candidates.isNotEmpty()) database.titleCandidateDao().insertAll(candidates)
+    if (resolutions.isNotEmpty()) database.titleCandidateDao().deleteOrphans()
+  }
 
   /**
    * Record the user's choice for an ambiguous title: adopt that film's id and year, clear the
@@ -193,7 +211,7 @@ private constructor(
       val imdbId = candidate.imdbId ?: lookupImdbId(candidate)
       val resolved =
         item.copy(
-          id = WatchlistItem.idFor(imdbId, item.title, candidate.year ?: item.year),
+          id = WatchlistItem.idFor(candidate.tmdbId, imdbId, item.title, candidate.year ?: item.year),
           imdbId = imdbId,
           tmdbId = candidate.tmdbId,
           title = candidate.title,
@@ -269,6 +287,11 @@ private constructor(
       runCatching { resolveTitles() }
         .onFailure { Log.d(TAG, "Title resolution skipped: ${it.message}") }
 
+      // 2b. Give IMDb-only entries (from CSV / public-list imports) a TMDB id too, so every
+      // source ends up on the same standardized key rather than just the Google TV path.
+      runCatching { backfillTmdbIds() }
+        .onFailure { Log.d(TAG, "TMDB backfill skipped: ${it.message}") }
+
       // Series can never have a cinema screening, and an ambiguous title would match the wrong
       // film, so neither is worth asking a cinema about.
       val stored = database.watchlistDao().getAll()
@@ -336,34 +359,28 @@ private constructor(
           }
       }
 
-      // 4. Match against the watchlist.
+      // 4. Determine what TMDB film each screening actually is, then match against the
+      // watchlist by that id first — the "how we link" the board asked for — falling back to
+      // title/year comparison for whatever does not resolve (no TMDB key, an unlisted title, or
+      // a watchlist entry not yet identified).
+      val tmdbIdCache = resolveScreeningTmdbIds(raw)
       val matched =
-        raw.mapNotNull { screening ->
-          val item =
-            TitleMatcher.findMatch(
-              MatchCandidate(
-                title = screening.title,
-                originalTitle = screening.originalTitle,
-                year = screening.year,
-                imdbId = screening.imdbId,
-              ),
-              currentWatchlist,
-            ) ?: return@mapNotNull null
-
-          Screening(
-            id = "${screening.cinemaId}|${item.id}|${screening.startTime.toEpochMilli()}",
-            watchlistMovieId = item.id,
-            movieTitle = item.title,
-            cinemaId = screening.cinemaId,
-            cinemaName = screening.cinemaName,
-            auditorium = screening.auditorium,
-            screeningTime = screening.startTime.toEpochMilli(),
-            formatTag = screening.formatTags.joinToString(" • ").ifBlank { null },
-            bookingUrl = screening.bookingUrl,
-            priceSek = screening.priceSek,
-            foundAt = startedAt,
-          )
-        }
+        ScreeningMatcher.match(raw, currentWatchlist) { tmdbIdCache[it.tmdbCacheKey()] }
+          .map { (screening, item, _) ->
+            Screening(
+              id = "${screening.cinemaId}|${item.id}|${screening.startTime.toEpochMilli()}",
+              watchlistMovieId = item.id,
+              movieTitle = item.title,
+              cinemaId = screening.cinemaId,
+              cinemaName = screening.cinemaName,
+              auditorium = screening.auditorium,
+              screeningTime = screening.startTime.toEpochMilli(),
+              formatTag = screening.formatTags.joinToString(" • ").ifBlank { null },
+              bookingUrl = screening.bookingUrl,
+              priceSek = screening.priceSek,
+              foundAt = startedAt,
+            )
+          }
           .distinctBy { it.id }
 
       // 5. Persist. Only prune venues we actually reached, so a failed source does not wipe the
@@ -432,6 +449,25 @@ private constructor(
         isSuccess = failures.isEmpty(),
       )
     }
+
+  /**
+   * Resolve the TMDB id of every distinct film among [screenings], once each rather than once
+   * per showing — several venues typically screen the same film. Empty (not per-item errors)
+   * when TMDB is unconfigured, which is what makes [ScreeningMatcher] fall back to text matching
+   * uniformly rather than partially.
+   */
+  private suspend fun resolveScreeningTmdbIds(screenings: List<RawScreening>): Map<String, Int?> {
+    if (!lookup.isConfigured) return emptyMap()
+    val distinct = screenings.distinctBy { it.tmdbCacheKey() }
+    return distinct.associate { screening ->
+      screening.tmdbCacheKey() to
+        runCatching { lookup.resolveBestMatch(screening.title, screening.year) }
+          .getOrNull()
+          ?.tmdbId
+    }
+  }
+
+  private fun RawScreening.tmdbCacheKey(): String = "$title|$year"
 
   fun sendTestNotification() = notifications.sendTestNotification()
 

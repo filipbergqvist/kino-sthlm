@@ -98,9 +98,9 @@ class TitleResolver(private val lookup: TitleLookup = TitleLookup()) {
             resolutions +=
               Resolution(
                 item = item.copy(
-                  // Adopting the IMDb id changes the key, which is what merges the same film
+                  // Adopting the TMDB id changes the key, which is what merges the same film
                   // arriving from two different lists into one entry.
-                  id = WatchlistItem.idFor(full.imdbId ?: item.imdbId, item.title, year),
+                  id = WatchlistItem.idFor(full.tmdbId, full.imdbId ?: item.imdbId, item.title, year),
                   imdbId = full.imdbId ?: item.imdbId,
                   tmdbId = full.tmdbId,
                   year = year,
@@ -138,6 +138,49 @@ class TitleResolver(private val lookup: TitleLookup = TitleLookup()) {
 
     onProgress(pending.size, pending.size)
     return Outcome(resolutions, identified, series, ambiguous, failed)
+  }
+
+  /**
+   * Give a TMDB id to entries that already carry an IMDb id but no TMDB one — IMDb CSV and
+   * public-list imports, which arrive with IMDb's own id and never otherwise touch TMDB.
+   *
+   * TMDB id is the watchlist's standardized key (see [WatchlistItem.idFor]): it is what a cinema
+   * screening is resolved to and matched against, so an entry stuck on its IMDb id alone falls
+   * back to the weaker title/year comparison for every sync until this fills the gap. Cheap and
+   * unambiguous — `find` by IMDb id returns at most one film, so there is nothing to review.
+   */
+  suspend fun backfillTmdbIds(
+    items: List<WatchlistItem>,
+    limit: Int = Int.MAX_VALUE,
+  ): List<Resolution> {
+    if (!lookup.isConfigured) return emptyList()
+
+    val pending = items.filter { it.imdbId != null && it.tmdbId == null }.take(limit)
+    if (pending.isEmpty()) return emptyList()
+
+    val resolutions = mutableListOf<Resolution>()
+    for (item in pending) {
+      val candidate =
+        runCatching { lookup.lookupByImdbId(item.imdbId!!) }.getOrElse { error ->
+          Log.d(TAG, "TMDB backfill failed for ${item.title}: ${error.message}")
+          null
+        }
+      // A film's IMDb id should never resolve to a series; if it somehow does, leave the entry
+      // alone rather than mislabel something the user's own IMDb list called a film.
+      if (candidate == null || !candidate.isFilm) continue
+
+      resolutions +=
+        Resolution(
+          item = item.copy(
+            id = WatchlistItem.idFor(candidate.tmdbId, item.imdbId, item.title, item.year),
+            tmdbId = candidate.tmdbId,
+            posterUrl = item.posterUrl ?: candidate.posterUrl,
+          ),
+          oldId = item.id,
+        )
+      delay(REQUEST_SPACING_MILLIS)
+    }
+    return resolutions
   }
 
   /**

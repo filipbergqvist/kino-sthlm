@@ -302,6 +302,97 @@ class TitleResolverTest {
     assertTrue(outcome.resolutions.isEmpty())
   }
 
+  // --- backfillTmdbIds: giving a TMDB id to IMDb CSV / public-list imports ---
+
+  /** Shape of a TMDB /find/{imdb_id} response, trimmed to the fields we read. */
+  private fun findByImdbId(tmdbId: Int, title: String, year: Int?) =
+    """{"movie_results":[{"id":$tmdbId,"media_type":"movie","title":"$title","release_date":"${year ?: 1900}-01-01"}],"tv_results":[]}"""
+
+  private fun serverFinding(body: () -> String): MockWebServer =
+    MockWebServer().apply {
+      dispatcher =
+        object : Dispatcher() {
+          override fun dispatch(request: RecordedRequest) = MockResponse().setBody(body())
+        }
+      start()
+    }
+
+  @Test
+  fun `gives a tmdb id to an entry that only has an imdb id`() = runTest {
+    val server = serverFinding { findByImdbId(19, "Metropolis", 1927) }
+    try {
+      val imdbOnly =
+        WatchlistItem(id = "imdb:tt0017136", title = "Metropolis", imdbId = "tt0017136", year = 1927)
+
+      val resolutions = TitleResolver(lookupAgainst(server)).backfillTmdbIds(listOf(imdbOnly))
+
+      assertEquals(1, resolutions.size)
+      val resolved = resolutions.single()
+      assertEquals("imdb:tt0017136", resolved.oldId)
+      assertEquals(19, resolved.item.tmdbId)
+      // Standardizing the key means adopting the TMDB-based id, not just filling the field.
+      assertEquals("tmdb:19", resolved.item.id)
+    } finally {
+      server.shutdown()
+    }
+  }
+
+  @Test
+  fun `does not touch entries that already have a tmdb id`() = runTest {
+    val server = serverFinding { findByImdbId(19, "Metropolis", 1927) }
+    try {
+      val alreadyIdentified =
+        WatchlistItem(id = "tmdb:19", title = "Metropolis", imdbId = "tt0017136", tmdbId = 19)
+
+      val resolutions = TitleResolver(lookupAgainst(server)).backfillTmdbIds(listOf(alreadyIdentified))
+
+      assertTrue(resolutions.isEmpty())
+      assertEquals(0, server.requestCount)
+    } finally {
+      server.shutdown()
+    }
+  }
+
+  @Test
+  fun `does not touch entries with no imdb id to look up from`() = runTest {
+    val server = serverFinding { findByImdbId(19, "Metropolis", 1927) }
+    try {
+      val bareTitle = WatchlistItem(id = "title:metropolis", title = "Metropolis")
+
+      val resolutions = TitleResolver(lookupAgainst(server)).backfillTmdbIds(listOf(bareTitle))
+
+      assertTrue(resolutions.isEmpty())
+      assertEquals(0, server.requestCount)
+    } finally {
+      server.shutdown()
+    }
+  }
+
+  @Test
+  fun `does nothing for backfill without a tmdb key`() = runTest {
+    val imdbOnly = WatchlistItem(id = "imdb:tt0017136", title = "Metropolis", imdbId = "tt0017136")
+
+    val resolutions =
+      TitleResolver(TitleLookup(apiKey = "", baseUrl = "https://unused.test"))
+        .backfillTmdbIds(listOf(imdbOnly))
+
+    assertTrue(resolutions.isEmpty())
+  }
+
+  @Test
+  fun `leaves an entry alone when the imdb id does not resolve`() = runTest {
+    val server = serverFinding { """{"movie_results":[],"tv_results":[]}""" }
+    try {
+      val imdbOnly = WatchlistItem(id = "imdb:tt9999999", title = "Nothing Here", imdbId = "tt9999999")
+
+      val resolutions = TitleResolver(lookupAgainst(server)).backfillTmdbIds(listOf(imdbOnly))
+
+      assertTrue(resolutions.isEmpty())
+    } finally {
+      server.shutdown()
+    }
+  }
+
   @Test
   fun `an unresolved entry is never matched against cinema listings`() {
     val pending = item("Nosferatu")
