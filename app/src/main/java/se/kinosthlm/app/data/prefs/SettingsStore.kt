@@ -65,8 +65,13 @@ class SettingsStore(private val context: Context) {
     /** Cinema schedules change on a daily rhythm; polling harder only costs battery. */
     const val DEFAULT_INTERVAL_HOURS = 6L
 
-    /** Three weeks: far enough ahead that good seats are still available when we notify. */
-    const val DEFAULT_HORIZON_DAYS = 21L
+    /**
+     * Two months. Three weeks was the old default, from when every source only published a short
+     * window — but the independents post their repertory programme months out (Bio Rio's calendar
+     * runs to November), so a 21-day horizon silently dropped exactly the retrospective screenings
+     * this app is most useful for. Wider means earlier warning at the cost of a few more requests.
+     */
+    const val DEFAULT_HORIZON_DAYS = 60L
 
     private val KEY_AUTO_SYNC = booleanPreferencesKey("auto_sync_enabled")
     private val KEY_INTERVAL_HOURS = longPreferencesKey("sync_interval_hours")

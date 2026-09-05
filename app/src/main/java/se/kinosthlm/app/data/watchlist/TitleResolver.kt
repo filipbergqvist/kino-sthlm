@@ -116,7 +116,7 @@ class TitleResolver(private val lookup: TitleLookup = TitleLookup()) {
             resolutions +=
               Resolution(
                 item.copy(titleType = WatchlistItem.TYPE_MOVIE, needsReview = true),
-                result.films.map { candidate ->
+                offerable(result.films).map { candidate ->
                   TitleCandidate(
                     id = "${item.id}|${candidate.tmdbId}",
                     watchlistItemId = item.id,
@@ -186,38 +186,21 @@ class TitleResolver(private val lookup: TitleLookup = TitleLookup()) {
   }
 
   /**
-   * Fetch a poster and synopsis for entries that already have a TMDB id but never went through a
-   * search or lookup to pick one up — in practice, Trakt imports, which arrive with a TMDB id
-   * straight from Trakt's own API.
+   * Narrow TMDB's matches down to a list worth showing a human.
    *
-   * Deliberately capped and spaced the same as everything else here: TMDB's public API is not
-   * meant for bulk fetching, so a large Trakt watchlist gets its posters "over time", a handful
-   * per sync, rather than in one burst.
+   * A search for a title like "Past Lives" comes back with the film, plus documentaries, shorts
+   * and untitled fragments that happen to share the name — several of them indistinguishable in a
+   * picker, since all it shows is a title and a year. Keep one entry per year (the most popular,
+   * which is the one a person almost certainly means), drop yearless entries entirely once any
+   * dated one exists — an unreleased stub is never the film someone put on a watchlist — and stop
+   * at [MAX_CANDIDATES] so the choice stays a choice rather than a catalogue.
    */
-  suspend fun backfillPosters(items: List<WatchlistItem>, limit: Int = Int.MAX_VALUE): List<Resolution> {
-    if (!lookup.isConfigured) return emptyList()
-
-    val pending = items.filter { it.tmdbId != null && it.posterUrl == null }.take(limit)
-    if (pending.isEmpty()) return emptyList()
-
-    val resolutions = mutableListOf<Resolution>()
-    for (item in pending) {
-      val details =
-        runCatching { lookup.fetchMovieDetails(item.tmdbId!!) }.getOrElse { error ->
-          Log.d(TAG, "Poster backfill failed for ${item.title}: ${error.message}")
-          null
-        } ?: continue
-
-      resolutions +=
-        Resolution(
-          item.copy(
-            posterUrl = details.posterUrl ?: item.posterUrl,
-            overview = item.overview ?: details.overview,
-          )
-        )
-      delay(REQUEST_SPACING_MILLIS)
-    }
-    return resolutions
+  private fun offerable(films: List<TitleLookup.Candidate>): List<TitleLookup.Candidate> {
+    val dated = films.filter { it.year != null }
+    return (dated.ifEmpty { films })
+      .sortedByDescending { it.popularity }
+      .distinctBy { it.year }
+      .take(MAX_CANDIDATES)
   }
 
   /**
@@ -235,5 +218,8 @@ class TitleResolver(private val lookup: TitleLookup = TitleLookup()) {
   private companion object {
     const val TAG = "TitleResolver"
     const val REQUEST_SPACING_MILLIS = 120L
+
+    /** Enough to tell a remake from an original; more than this is a catalogue, not a choice. */
+    const val MAX_CANDIDATES = 4
   }
 }

@@ -30,7 +30,7 @@ class NotificationHelper(private val context: Context) {
     val channel =
       NotificationChannel(CHANNEL_ID, "Screening alerts", NotificationManager.IMPORTANCE_DEFAULT)
         .apply {
-          description = "When a film on your watchlist is scheduled at a Stockholm cinema"
+          description = "When a film you are tracking is scheduled at a Stockholm cinema"
         }
     context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
   }
@@ -78,7 +78,7 @@ class NotificationHelper(private val context: Context) {
       val summary =
         NotificationCompat.Builder(context, CHANNEL_ID)
           .setSmallIcon(R.drawable.ic_notification)
-          .setContentTitle("${byFilm.size} films from your watchlist are showing")
+          .setContentTitle("${byFilm.size} films you are tracking are showing")
           .setGroup(GROUP_KEY)
           .setGroupSummary(true)
           .setAutoCancel(true)
@@ -136,7 +136,7 @@ class NotificationHelper(private val context: Context) {
       NotificationCompat.Builder(context, CHANNEL_ID)
         .setSmallIcon(R.drawable.ic_notification)
         .setContentTitle("KinoSthlm notifications work")
-        .setContentText("You will get an alert like this when a watchlisted film is scheduled.")
+        .setContentText("You will get an alert like this when a tracked film is scheduled.")
         .setAutoCancel(true)
         .setContentIntent(openApp(null))
         .build()

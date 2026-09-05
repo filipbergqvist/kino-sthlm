@@ -1,5 +1,10 @@
 package se.kinosthlm.app.ui.screens
 
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -97,13 +103,32 @@ fun BoxScope.VerticalScrollbar(listState: LazyListState, modifier: Modifier = Mo
   }
 }
 
+/**
+ * A poster-shaped grey box that pulses while TMDB is being asked for the real one.
+ *
+ * Reserving the space rather than omitting it also stops the row reflowing the moment a poster
+ * arrives, which is what made the list jump around while a large import filled in.
+ */
+@Composable
+fun PosterPlaceholder(modifier: Modifier = Modifier) {
+  val transition = rememberInfiniteTransition(label = "poster-placeholder")
+  val alpha by
+    transition.animateFloat(
+      initialValue = 0.10f,
+      targetValue = 0.28f,
+      animationSpec = infiniteRepeatable(tween(durationMillis = 900), RepeatMode.Reverse),
+      label = "poster-placeholder-alpha",
+    )
+  Box(modifier.background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha)))
+}
+
 /** Human-readable label for a [WatchlistItem] provenance source id. */
 fun sourceLabel(source: String): String =
   when (source) {
     WatchlistItem.SOURCE_TRAKT -> "Trakt"
     WatchlistItem.SOURCE_IMDB -> "IMDb"
     WatchlistItem.SOURCE_GOOGLE_TV -> "Google TV"
-    WatchlistItem.SOURCE_MANUAL -> "Added by hand"
+    WatchlistItem.SOURCE_MANUAL -> "Manual Add"
     WatchlistItem.SOURCE_PINNED -> "Pinned"
     else -> source
   }
@@ -118,7 +143,7 @@ fun watchlistDescriptor(item: WatchlistItem, sources: List<String>): String? {
     when {
       hasRealSource -> null
       WatchlistItem.SOURCE_PINNED in sources -> "Pinned"
-      else -> "Added by hand"
+      else -> "Manual Add"
     }
   return listOfNotNull(item.year?.toString(), fallback).joinToString(" · ").ifBlank { null }
 }

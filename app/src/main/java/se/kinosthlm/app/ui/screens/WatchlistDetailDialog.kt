@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
@@ -21,15 +20,16 @@ import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,19 +37,24 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import se.kinosthlm.app.data.model.Cinema
 import se.kinosthlm.app.ui.viewmodel.WatchlistEntry
 
 /**
- * Detail view for one watchlisted film: poster, synopsis, a link to IMDb, and which lists it
- * came from. This is also the one place removal lives — tapping a card in the list opens this
- * rather than exposing an inline delete icon, so removing a film is a deliberate second step.
+ * Detail view for one tracked film: poster, synopsis, a link to IMDb, and which lists it came
+ * from. This is also the one place removal lives — tapping a card in the list opens this rather
+ * than exposing an inline delete icon, so removing a film is a deliberate second step.
+ *
+ * A bottom sheet rather than a centre dialog: full width leaves room for the synopsis and the
+ * venue-tag chips, and rising from the bottom keeps the controls under your thumb instead of
+ * re-centring (and so moving) every time the content changes height.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WatchlistDetailDialog(
   entry: WatchlistEntry,
+  notificationsEnabled: Boolean,
   onOpenImdb: (String) -> Unit,
   onRemove: (String) -> Unit,
   onTogglePin: (String, Boolean) -> Unit,
@@ -59,14 +64,13 @@ fun WatchlistDetailDialog(
 ) {
   val item = entry.item
 
-  Dialog(onDismissRequest = onDismiss) {
-    Card(
-      Modifier.fillMaxWidth().testTag("detail_${item.id}"),
-      shape = RoundedCornerShape(20.dp),
-      colors =
-        CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-    ) {
-      Column(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState())) {
+  ModalBottomSheet(
+    onDismissRequest = onDismiss,
+    sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+    modifier = Modifier.testTag("detail_${item.id}"),
+  ) {
+      Column(Modifier.verticalScroll(rememberScrollState())) {
         if (item.posterUrl != null) {
           AsyncImage(
             model = item.posterUrl,
@@ -122,29 +126,32 @@ fun WatchlistDetailDialog(
             }
           }
 
-          Spacer(Modifier.height(16.dp))
-          Text(
-            "Notify for",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-          Row(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            modifier = Modifier.padding(top = 4.dp).testTag("venue_tag_row_${item.id}"),
-          ) {
-            FilterChip(
-              selected = item.requiredVenueTag == null,
-              onClick = { onSetRequiredVenueTag(item.id, null) },
-              label = { Text("Any cinema") },
-              modifier = Modifier.testTag("venue_tag_any_${item.id}"),
+          // Pointless while nothing can notify at all, so it does not appear then.
+          if (notificationsEnabled) {
+            Spacer(Modifier.height(16.dp))
+            Text(
+              "Notify for",
+              style = MaterialTheme.typography.labelMedium,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            for (tag in Cinema.ALL_TAGS) {
+            Row(
+              horizontalArrangement = Arrangement.spacedBy(6.dp),
+              modifier = Modifier.padding(top = 4.dp).testTag("venue_tag_row_${item.id}"),
+            ) {
               FilterChip(
-                selected = item.requiredVenueTag == tag,
-                onClick = { onSetRequiredVenueTag(item.id, tag) },
-                label = { Text(tag) },
-                modifier = Modifier.testTag("venue_tag_${tag}_${item.id}"),
+                selected = item.requiredVenueTag == null,
+                onClick = { onSetRequiredVenueTag(item.id, null) },
+                label = { Text("Any cinema") },
+                modifier = Modifier.testTag("venue_tag_any_${item.id}"),
               )
+              for (tag in Cinema.ALL_TAGS) {
+                FilterChip(
+                  selected = item.requiredVenueTag == tag,
+                  onClick = { onSetRequiredVenueTag(item.id, tag) },
+                  label = { Text(tag) },
+                  modifier = Modifier.testTag("venue_tag_${tag}_${item.id}"),
+                )
+              }
             }
           }
 
@@ -193,6 +200,5 @@ fun WatchlistDetailDialog(
           }
         }
       }
-    }
   }
 }

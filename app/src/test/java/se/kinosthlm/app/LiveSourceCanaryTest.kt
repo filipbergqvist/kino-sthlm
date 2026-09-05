@@ -10,6 +10,7 @@ import org.junit.Test
 import se.kinosthlm.app.data.model.Cinema
 import se.kinosthlm.app.data.model.WatchlistItem
 import se.kinosthlm.app.data.net.Http
+import se.kinosthlm.app.data.prefs.SettingsStore
 import se.kinosthlm.app.data.source.BioRioSource
 import se.kinosthlm.app.data.source.CapitolSource
 import se.kinosthlm.app.data.source.CinemaSource
@@ -41,7 +42,7 @@ class LiveSourceCanaryTest {
   }
 
   private val from: Instant = Instant.now()
-  private val to: Instant = from.plus(21, ChronoUnit.DAYS)
+  private val to: Instant = from.plus(SettingsStore.DEFAULT_HORIZON_DAYS, ChronoUnit.DAYS)
 
   private fun cinema(id: String, name: String, source: CinemaSource, remoteId: String? = null) =
     Cinema(
@@ -126,6 +127,14 @@ class LiveSourceCanaryTest {
       )
     assertTrue("Bio Rio returned no screenings — the calendar page may have changed", screenings.isNotEmpty())
     assertTrue(screenings.all { it.title.isNotBlank() })
+
+    // Bio Rio's repertory programme runs months out, and a horizon shorter than that silently
+    // dropped exactly those screenings (Barry Lyndon, 22 days out, against a 21-day window).
+    val beyondThreeWeeks = from.plus(21, ChronoUnit.DAYS)
+    assertTrue(
+      "Bio Rio returned nothing beyond three weeks — the search horizon is too narrow again",
+      screenings.any { it.startTime.isAfter(beyondThreeWeeks) },
+    )
   }
 
   @Test

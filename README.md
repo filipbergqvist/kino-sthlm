@@ -21,7 +21,12 @@ pull to refresh.
   is a TV series (Google TV exports mix those in; they are hidden, since they never play in
   cinemas).
 - **Checks Stockholm cinemas** for anything on that list — 14 venues on the Filmstaden booking
-  platform plus four independents, each one individually switchable.
+  platform plus four independents, each one individually switchable. Two months ahead by
+  default, since the independents post their repertory programme that far out; adjustable in
+  Settings.
+- **Notifies you about the right venue** — cinemas are tagged (Big Screen, Cozy, IMAX) and a film
+  can require one, so a blockbuster only pings you for a big screen and a classic only for a
+  small independent.
 - **Shows you the film** — tap a watchlist entry for its poster, synopsis, an IMDb link and which
   lists it came from. Removing it lives here too, as a deliberate second step rather than a
   stray tap in the list.

@@ -5,27 +5,44 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import se.kinosthlm.app.data.model.TitleCandidate
 import se.kinosthlm.app.data.watchlist.TitleLookup
 import se.kinosthlm.app.ui.viewmodel.AddSearchState
@@ -34,95 +51,134 @@ import se.kinosthlm.app.ui.viewmodel.ReviewEntry
 /**
  * Resolve titles that could be several different films.
  *
- * A Google TV export gives a bare name, so "Nosferatu" might mean 1922 or 2024. Rather than
- * asking the user to go and find an IMDb link, we show the actual candidates — title, year and
- * IMDb id — and they tap one. Anything that is really a TV series can be dismissed here too.
+ * A Google TV export gives a bare name, so "Nosferatu" might mean 1922 or 2024. We show the
+ * actual candidates — poster, title and year — and the user taps one, pastes a link if none of
+ * them is right, or removes the entry entirely.
+ *
+ * The queue is derived from ids rather than an index into [entries]. That list is live: choosing
+ * a film clears its `needsReview` flag, so the entry disappears from it a moment later. An index
+ * that also stepped forward would land two places on, silently skipping the next film — which is
+ * exactly what it used to do.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReviewDialog(
   entries: List<ReviewEntry>,
   onChoose: (String, TitleCandidate) -> Unit,
-  onMarkSeries: (String) -> Unit,
+  onResolveByLink: (String, String) -> Unit,
+  onRemove: (String) -> Unit,
   onDismiss: () -> Unit,
 ) {
-  if (entries.isEmpty()) {
+  // Entries put off with "Later", kept for this sitting only so they stop coming back round.
+  val skipped = remember { mutableStateListOf<String>() }
+  val queue = entries.filterNot { it.item.id in skipped }
+  val entry = queue.firstOrNull()
+
+  if (entry == null) {
     onDismiss()
     return
   }
 
-  var index by remember { mutableStateOf(0) }
-  val entry = entries.getOrNull(index) ?: entries.first()
+  var link by remember(entry.item.id) { mutableStateOf("") }
 
-  fun advance() {
-    if (index >= entries.size - 1) onDismiss() else index++
-  }
-
-  AlertDialog(
+  ModalBottomSheet(
     onDismissRequest = onDismiss,
-    title = {
-      Column {
-        Text("Which \"${entry.item.title}\"?")
-        if (entries.size > 1) {
+    sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    modifier = Modifier.testTag("review_sheet"),
+  ) {
+    Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 20.dp)) {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+          Text("Which \"${entry.item.title}\"?", style = MaterialTheme.typography.titleLarge)
           Text(
-            "${index + 1} of ${entries.size}",
+            if (queue.size > 1) "${queue.size} titles still need a choice" else "Last one",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
           )
         }
+        // 50 entries is a lot of "Later" taps; one X closes the whole sitting.
+        IconButton(onClick = onDismiss, modifier = Modifier.testTag("close_review")) {
+          Icon(Icons.Default.Close, contentDescription = "Close")
+        }
       }
-    },
-    text = {
-      Column {
-        if (entry.candidates.isEmpty()) {
-          Text(
-            "We could not find a film with this name. It may be a TV series, or spelled " +
-              "differently on IMDb.",
-            style = MaterialTheme.typography.bodyMedium,
-          )
-        } else {
-          Text(
-            "Your watchlist does not say which one. Pick the film you meant.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-          LazyColumn(
-            Modifier.heightIn(max = 320.dp).testTag("candidates"),
-            contentPadding = PaddingValues(vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-          ) {
-            items(entry.candidates.size) { position ->
-              val candidate = entry.candidates[position]
-              CandidateRow(candidate) {
-                onChoose(entry.item.id, candidate)
-                advance()
-              }
-            }
+
+      Spacer(Modifier.height(8.dp))
+      if (entry.candidates.isEmpty()) {
+        Text(
+          "We could not find a film with this name. Paste a link below, or remove it.",
+          style = MaterialTheme.typography.bodyMedium,
+        )
+      } else {
+        LazyColumn(
+          Modifier.heightIn(max = 320.dp).testTag("candidates"),
+          contentPadding = PaddingValues(vertical = 4.dp),
+          verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+          items(entry.candidates.size) { position ->
+            val candidate = entry.candidates[position]
+            CandidateRow(candidate) { onChoose(entry.item.id, candidate) }
           }
         }
       }
-    },
-    confirmButton = {
-      TextButton(
-        onClick = {
-          onMarkSeries(entry.item.id)
-          advance()
+
+      Spacer(Modifier.height(12.dp))
+      OutlinedTextField(
+        value = link,
+        onValueChange = { link = it },
+        label = { Text("…or paste an IMDb/TMDB link") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth().testTag("review_link_input"),
+        trailingIcon = {
+          if (link.isNotBlank()) {
+            TextButton(
+              onClick = { onResolveByLink(entry.item.id, link.trim()) },
+              modifier = Modifier.testTag("resolve_link"),
+            ) {
+              Text("Use")
+            }
+          }
         },
-        modifier = Modifier.testTag("not_a_film"),
-      ) {
-        Text("Not a film")
+      )
+
+      Spacer(Modifier.height(8.dp))
+      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        TextButton(
+          onClick = { skipped += entry.item.id },
+          modifier = Modifier.testTag("review_later"),
+        ) {
+          Text("Later")
+        }
+        TextButton(
+          onClick = { onRemove(entry.item.id) },
+          colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+          modifier = Modifier.testTag("review_remove"),
+        ) {
+          Text("Remove")
+        }
       }
-    },
-    dismissButton = { TextButton(onClick = ::advance) { Text("Later") } },
-  )
+    }
+  }
 }
 
 @Composable
 private fun CandidateRow(candidate: TitleCandidate, onClick: () -> Unit) {
   Card(
-    Modifier.fillMaxWidth().clickable(onClick = onClick).testTag("candidate_${candidate.imdbId}"),
+    Modifier.fillMaxWidth().clickable(onClick = onClick).testTag("candidate_${candidate.tmdbId}"),
     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
   ) {
-    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+      val posterShape = Modifier.size(width = 40.dp, height = 60.dp).clip(RoundedCornerShape(4.dp))
+      if (candidate.posterUrl != null) {
+        AsyncImage(
+          model = candidate.posterUrl,
+          contentDescription = null,
+          contentScale = ContentScale.Crop,
+          modifier = posterShape,
+        )
+      } else {
+        PosterPlaceholder(posterShape)
+      }
+      Spacer(Modifier.width(10.dp))
       Column(Modifier.weight(1f)) {
         Text(
           candidate.title,

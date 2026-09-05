@@ -37,6 +37,7 @@ fun SettingsScreen(
   onImportImdbList: () -> Unit,
   onSetAutoSync: (Boolean) -> Unit,
   onSetInterval: (Long) -> Unit,
+  onSetHorizon: (Long) -> Unit,
   onSetNotifications: (Boolean) -> Unit,
   onSyncNow: () -> Unit,
   onResolveTitles: () -> Unit,
@@ -131,6 +132,22 @@ fun SettingsScreen(
             }
           }
         }
+        // Repertory cinemas post months ahead; too short a window silently hides exactly the
+        // one-off screenings worth knowing about early.
+        Text("How far ahead to look", style = MaterialTheme.typography.bodyMedium)
+        Row(
+          Modifier.padding(vertical = 4.dp),
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+          for (days in listOf(21L, 30L, 60L, 90L)) {
+            FilterChip(
+              selected = uiState.horizonDays == days,
+              onClick = { onSetHorizon(days) },
+              label = { Text("${days}d") },
+              modifier = Modifier.testTag("horizon_$days"),
+            )
+          }
+        }
         Text(
           if (uiState.lastSyncAt > 0L) {
             "Last sync ${NotificationHelper.formatTime(uiState.lastSyncAt)} — " +
@@ -197,7 +214,7 @@ fun SettingsScreen(
 
     item {
       Section("Notifications") {
-        SettingRow("Alerts", "Notify when a watchlisted film is scheduled") {
+        SettingRow("Alerts", "Notify when a tracked film is scheduled") {
           Switch(checked = uiState.notificationsEnabled, onCheckedChange = onSetNotifications)
         }
         OutlinedButton(onClick = onTestNotification, modifier = Modifier.testTag("test_notif")) {
@@ -209,7 +226,7 @@ fun SettingsScreen(
     item {
       Section("About") {
         Text(
-          "KinoSthlm watches Stockholm cinema schedules for films on your watchlist. " +
+          "KinoSthlm tracks Stockholm cinema schedules for the films on your list. " +
             "Everything runs on this device — there is no server and no account.",
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -57,7 +57,14 @@ data class ReviewEntry(
 enum class WatchlistSort {
   ADDED,
   ALPHABETICAL,
-  YEAR,
+  YEAR;
+
+  /**
+   * The direction that reads as "normal" for this field, applied when you switch to it: newest
+   * first for dates, A first for names. Flipping from there is one tap.
+   */
+  val defaultDescending: Boolean
+    get() = this != ALPHABETICAL
 }
 
 /** State of the Trakt device-code flow, driven from Settings. */
@@ -85,11 +92,13 @@ data class UiState(
   val lastSyncSummary: String = "",
   val autoSyncEnabled: Boolean = true,
   val syncIntervalHours: Long = SettingsStore.DEFAULT_INTERVAL_HOURS,
+  val horizonDays: Long = SettingsStore.DEFAULT_HORIZON_DAYS,
   val notificationsEnabled: Boolean = true,
   val cinemaFilter: String? = null,
   val showingSoonOnly: Boolean = false,
   val watchlistQuery: String = "",
   val watchlistSort: WatchlistSort = WatchlistSort.ADDED,
+  val watchlistSortDescending: Boolean = true,
   /** Ambiguous titles waiting for the user to pick the right film. */
   val needsReview: List<ReviewEntry> = emptyList(),
   /** TV series found in the watchlist; hidden from the list because they never play in cinemas. */
@@ -119,6 +128,7 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
   private val showingSoonOnly = MutableStateFlow(false)
   private val watchlistQuery = MutableStateFlow("")
   private val watchlistSort = MutableStateFlow(WatchlistSort.ADDED)
+  private val watchlistSortDescending = MutableStateFlow(WatchlistSort.ADDED.defaultDescending)
   private val traktState = MutableStateFlow<TraktState>(TraktState.Disconnected)
   private val message = MutableStateFlow<String?>(null)
   private val resolveProgress = MutableStateFlow<Pair<Int, Int>?>(null)
@@ -143,24 +153,29 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
           repository.upcomingScreenings,
           repository.cinemas,
           repository.watchlistSources,
-          combine(cinemaFilter, showingSoonOnly, watchlistQuery, watchlistSort) {
+          combine(cinemaFilter, showingSoonOnly, watchlistQuery, watchlistSort, watchlistSortDescending) {
             filter,
             soonOnly,
             query,
-            sort ->
-            Filters(filter, soonOnly, query, sort)
+            sort,
+            descending ->
+            Filters(filter, soonOnly, query, sort, descending)
           },
         ) { watchlist, screenings, cinemas, sources, filters ->
           Content(watchlist, screenings, cinemas, sources, filters)
         },
         combine(
-          settings.autoSyncEnabled,
-          settings.syncIntervalHours,
+          combine(settings.autoSyncEnabled, settings.syncIntervalHours, settings.horizonDays) {
+            auto,
+            interval,
+            horizon ->
+            Triple(auto, interval, horizon)
+          },
           settings.notificationsEnabled,
           settings.lastSyncAt,
           settings.lastSyncSummary,
-        ) { auto, interval, notifications, lastAt, summary ->
-          Prefs(auto, interval, notifications, lastAt, summary)
+        ) { schedule, notifications, lastAt, summary ->
+          Prefs(schedule.first, schedule.second, schedule.third, notifications, lastAt, summary)
         },
         combine(
           combine(isSyncing, syncStep, selectedIds) { syncing, step, selected ->
@@ -206,11 +221,13 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
               } ?: list
             }
             .let { list ->
-              when (content.filters.sort) {
-                WatchlistSort.ADDED -> list.sortedByDescending { it.item.addedAt }
-                WatchlistSort.ALPHABETICAL -> list.sortedBy { it.item.title.lowercase() }
-                WatchlistSort.YEAR -> list.sortedByDescending { it.item.year ?: 0 }
-              }
+              val ascending =
+                when (content.filters.sort) {
+                  WatchlistSort.ADDED -> list.sortedBy { it.item.addedAt }
+                  WatchlistSort.ALPHABETICAL -> list.sortedBy { it.item.title.lowercase() }
+                  WatchlistSort.YEAR -> list.sortedBy { it.item.year ?: 0 }
+                }
+              if (content.filters.sortDescending) ascending.reversed() else ascending
             }
 
         UiState(
@@ -228,11 +245,13 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
           lastSyncSummary = prefs.summary,
           autoSyncEnabled = prefs.autoSync,
           syncIntervalHours = prefs.intervalHours,
+          horizonDays = prefs.horizonDays,
           notificationsEnabled = prefs.notifications,
           cinemaFilter = content.filters.cinemaId,
           showingSoonOnly = content.filters.soonOnly,
           watchlistQuery = content.filters.query,
           watchlistSort = content.filters.sort,
+          watchlistSortDescending = content.filters.sortDescending,
           traktState = transient.trakt,
           traktConfigured = repository.trakt.isConfigured,
           tmdbConfigured = repository.tmdbConfigured,
@@ -298,6 +317,14 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
         SyncWorker.schedulePeriodic(getApplication(), hours)
       }
       message.value = "Syncing every ${hours}h"
+    }
+  }
+
+  fun setHorizonDays(days: Long) {
+    viewModelScope.launch {
+      settings.setHorizonDays(days)
+      message.value = "Looking $days days ahead"
+      sync()
     }
   }
 
@@ -448,12 +475,34 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
     }
   }
 
-  /** The user says an entry is a TV series, so it should stop appearing. */
-  fun markAsSeries(itemId: String) {
+  /**
+   * Settle an ambiguous title from a pasted IMDb or TMDB link, for the cases where none of the
+   * offered candidates is the right film.
+   */
+  fun resolveByLink(itemId: String, input: String) {
+    if (input.isBlank()) return
     viewModelScope.launch {
-      repository.markAsSeries(itemId)
-      message.value = "Hidden as a TV series"
+      try {
+        val candidate =
+          repository.searchToAdd(input).firstOrNull()
+            ?: error("Nothing found for that link.")
+        repository.resolveAmbiguity(itemId, candidate.asTitleCandidate(itemId))
+        message.value = "Set to ${candidate.title}${candidate.year?.let { " ($it)" } ?: ""}"
+      } catch (error: Exception) {
+        message.value = error.message ?: "Could not resolve that link"
+      }
     }
+  }
+
+  /**
+   * A card scrolled into view without a poster yet — fetch just that one.
+   *
+   * Cheap and idempotent (see [KinoRepository.fetchPosterFor]), so calling it from every card's
+   * composition is fine, and means posters load for what is actually on screen rather than in
+   * database order from the bottom of the list up.
+   */
+  fun onPosterNeeded(itemId: String) {
+    viewModelScope.launch { repository.fetchPosterFor(itemId) }
   }
 
   // --- Multi-selection ---
@@ -532,14 +581,23 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
     watchlistQuery.value = query
   }
 
-  /** Cycles Added → A–Z → Year → Added, for the single sort chip in the watchlist header. */
+  /**
+   * Cycles Added → A–Z → Year → Added, for the sort chip in the watchlist header. Each field
+   * arrives in its natural direction; flipping it is the separate arrow button.
+   */
   fun cycleWatchlistSort() {
-    watchlistSort.value =
+    val next =
       when (watchlistSort.value) {
         WatchlistSort.ADDED -> WatchlistSort.ALPHABETICAL
         WatchlistSort.ALPHABETICAL -> WatchlistSort.YEAR
         WatchlistSort.YEAR -> WatchlistSort.ADDED
       }
+    watchlistSort.value = next
+    watchlistSortDescending.value = next.defaultDescending
+  }
+
+  fun toggleWatchlistSortDirection() {
+    watchlistSortDescending.value = !watchlistSortDescending.value
   }
 
   fun sendTestNotification() {
@@ -557,6 +615,7 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
     val soonOnly: Boolean,
     val query: String,
     val sort: WatchlistSort,
+    val sortDescending: Boolean,
   )
 
   private data class Content(
@@ -570,6 +629,7 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
   private data class Prefs(
     val autoSync: Boolean,
     val intervalHours: Long,
+    val horizonDays: Long,
     val notifications: Boolean,
     val lastSyncAt: Long,
     val summary: String,
@@ -586,4 +646,17 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
   )
 
   private data class Review(val entries: List<ReviewEntry>, val seriesCount: Int)
+
+  /** A lookup result reshaped as the stored candidate [resolveAmbiguity] expects. */
+  private fun TitleLookup.Candidate.asTitleCandidate(itemId: String) =
+    TitleCandidate(
+      id = "$itemId|$tmdbId",
+      watchlistItemId = itemId,
+      tmdbId = tmdbId,
+      imdbId = imdbId,
+      title = title,
+      year = year,
+      titleType = type,
+      posterUrl = posterUrl,
+    )
 }

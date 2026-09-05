@@ -51,6 +51,9 @@ private constructor(
   /** False when this build has no TMDB key — identification, posters and manual add all need it. */
   val tmdbConfigured: Boolean get() = lookup.isConfigured
 
+  /** Poster requests already running, so a recomposing card cannot fire the same one twice. */
+  private val inFlightPosters = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
   val watchlist: Flow<List<WatchlistItem>> = database.watchlistDao().observeAll()
   val upcomingScreenings: Flow<List<Screening>> = database.screeningDao().observeUpcoming()
   val cinemas: Flow<List<Cinema>> = database.cinemaDao().observeAll()
@@ -232,15 +235,37 @@ private constructor(
   }
 
   /**
-   * Fetch a poster and synopsis for entries that already have a TMDB id but skipped every path
-   * that would have picked one up — Trakt imports, mainly. Capped low: this is cosmetic, not
-   * something worth spending TMDB's rate limit on ahead of matching or identification.
+   * Fetch one film's poster and synopsis, on demand.
+   *
+   * Called when a card actually scrolls into view rather than in bulk during a sync: a 300-film
+   * watchlist otherwise spends its whole TMDB budget fetching posters nobody is looking at, in
+   * database order, so the films on screen are the *last* to fill in. Cheap to call repeatedly —
+   * entries that already have a poster, or have no TMDB id to ask about, return immediately, and
+   * [inFlightPosters] keeps a card that recomposes from firing the same request twice.
    */
-  private suspend fun backfillPosters(limit: Int = POSTER_BACKFILL_PER_RUN) {
-    val before = database.watchlistDao().getAll()
-    val resolutions = resolver.backfillPosters(before, limit)
-    applyResolutions(resolutions, before)
-  }
+  suspend fun fetchPosterFor(itemId: String) =
+    withContext(Dispatchers.IO) {
+      if (!lookup.isConfigured) return@withContext
+      val item = database.watchlistDao().getAll().firstOrNull { it.id == itemId } ?: return@withContext
+      val tmdbId = item.tmdbId ?: return@withContext
+      if (item.posterUrl != null) return@withContext
+      if (!inFlightPosters.add(itemId)) return@withContext
+
+      try {
+        val details = runCatching { lookup.fetchMovieDetails(tmdbId) }.getOrNull() ?: return@withContext
+        database.watchlistDao()
+          .insertAll(
+            listOf(
+              item.copy(
+                posterUrl = details.posterUrl ?: item.posterUrl,
+                overview = item.overview ?: details.overview,
+              )
+            )
+          )
+      } finally {
+        inFlightPosters.remove(itemId)
+      }
+    }
 
   /** Move each resolved entry onto its (possibly new) key and persist any review candidates. */
   private suspend fun applyResolutions(
@@ -299,15 +324,6 @@ private constructor(
     }
       .getOrNull()
 
-  /** The user says this entry is not a film; stop showing and matching it. */
-  suspend fun markAsSeries(itemId: String) =
-    withContext(Dispatchers.IO) {
-      val item = database.watchlistDao().getAll().firstOrNull { it.id == itemId }
-        ?: return@withContext
-      database.watchlistDao()
-        .insertAll(listOf(item.copy(titleType = WatchlistItem.TYPE_SERIES, needsReview = false)))
-      database.titleCandidateDao().deleteFor(itemId)
-    }
 
   // --- The sync ---
 
@@ -351,10 +367,6 @@ private constructor(
       runCatching { backfillTmdbIds() }
         .onFailure { Log.d(TAG, "TMDB backfill skipped: ${it.message}") }
 
-      // 2c. Fill in posters/synopses for entries that never went through a search — Trakt
-      // imports, which get a TMDB id but not the details that come with looking one up.
-      runCatching { backfillPosters() }
-        .onFailure { Log.d(TAG, "Poster backfill skipped: ${it.message}") }
 
       // Series can never have a cinema screening, and an ambiguous title would match the wrong
       // film, so neither is worth asking a cinema about.
@@ -564,12 +576,6 @@ private constructor(
      * than firing hundreds of lookups at once.
      */
     private const val RESOLVE_PER_RUN = 120
-
-    /**
-     * Posters are cosmetic, not something to burn TMDB's public rate limit on — a handful per
-     * sync means a large Trakt watchlist fills in "over time" rather than in one burst.
-     */
-    private const val POSTER_BACKFILL_PER_RUN = 20
 
     /** Ninety days: long past any screening we would re-announce. */
     private const val LOG_RETENTION_MILLIS = 90L * 24 * 60 * 60 * 1000

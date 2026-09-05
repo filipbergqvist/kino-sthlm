@@ -1,6 +1,7 @@
 package se.kinosthlm.app.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -68,31 +70,38 @@ fun ScheduleScreen(
       EmptyState(
         title = "No screenings found",
         body =
-          "Nothing from your watchlist is scheduled at the cinemas you follow. " +
+          "Nothing you are tracking is scheduled at the cinemas you follow. " +
             "KinoSthlm keeps checking in the background and will notify you.",
       )
       return@Column
     }
 
     val byDay = uiState.screenings.sortedBy { it.screeningTime }.groupBy { it.localDate() }
+    val listState = rememberLazyListState()
 
-    LazyColumn(
-      contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-      verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-      for ((day, screenings) in byDay) {
-        item(key = "header-$day") {
-          Text(
-            DAY_HEADER.format(day),
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(top = 8.dp),
-          )
-        }
-        items(screenings, key = { it.id }) { screening ->
-          ScheduleCard(screening, onOpenBooking)
+    Box(Modifier.fillMaxWidth()) {
+      LazyColumn(
+        Modifier.fillMaxWidth(),
+        state = listState,
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+      ) {
+        for ((day, screenings) in byDay) {
+          item(key = "header-$day") {
+            Text(
+              DAY_HEADER.format(day),
+              style = MaterialTheme.typography.labelLarge,
+              color = MaterialTheme.colorScheme.primary,
+              modifier = Modifier.padding(top = 6.dp),
+            )
+          }
+          items(screenings, key = { it.id }) { screening ->
+            ScheduleCard(screening, onOpenBooking)
+          }
         }
       }
+
+      VerticalScrollbar(listState, modifier = Modifier.padding(vertical = 8.dp, horizontal = 2.dp))
     }
   }
 }
@@ -103,7 +112,7 @@ private fun ScheduleCard(screening: Screening, onOpenBooking: (String) -> Unit) 
     Modifier.fillMaxWidth().testTag("screening_${screening.id}"),
     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
   ) {
-    Column(Modifier.padding(16.dp)) {
+    Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
       Text(
         screening.movieTitle,
         style = MaterialTheme.typography.titleMedium,

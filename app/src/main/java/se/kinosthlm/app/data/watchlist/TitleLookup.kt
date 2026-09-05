@@ -53,6 +53,8 @@ class TitleLookup(
     val overview: String? = null,
     /** Filled in lazily by [attachImdbId]; TMDB's search results do not carry it. */
     val imdbId: String? = null,
+    /** TMDB's own popularity score, used to rank which same-named film to offer first. */
+    val popularity: Double = 0.0,
   ) {
     val isFilm: Boolean get() = type == TYPE_MOVIE
   }
@@ -195,6 +197,7 @@ class TitleLookup(
         entry.optString("poster_path").takeIf { it.isNotBlank() && it != "null" }
           ?.let { "$IMAGE_BASE$it" },
       overview = entry.optString("overview").takeIf { it.isNotBlank() },
+      popularity = entry.optDouble("popularity", 0.0).takeIf { !it.isNaN() } ?: 0.0,
     )
   }
 

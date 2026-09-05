@@ -20,6 +20,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.NotificationsOff
@@ -44,6 +46,7 @@ import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,11 +62,12 @@ import se.kinosthlm.app.ui.viewmodel.UiState
 import se.kinosthlm.app.ui.viewmodel.WatchlistEntry
 import se.kinosthlm.app.ui.viewmodel.WatchlistSort
 
-private fun WatchlistSort.label(): String =
+/** Names the order you actually get, rather than the field plus a direction to decode. */
+private fun WatchlistSort.label(descending: Boolean): String =
   when (this) {
-    WatchlistSort.ADDED -> "Recently added"
-    WatchlistSort.ALPHABETICAL -> "A–Z"
-    WatchlistSort.YEAR -> "Year"
+    WatchlistSort.ADDED -> if (descending) "Recently added" else "Added first"
+    WatchlistSort.ALPHABETICAL -> if (descending) "Z–A" else "A–Z"
+    WatchlistSort.YEAR -> if (descending) "Newest" else "Oldest"
   }
 
 /**
@@ -86,8 +90,10 @@ fun WatchlistScreen(
   onOpenDetail: (WatchlistEntry) -> Unit,
   onQueryChange: (String) -> Unit,
   onCycleSort: () -> Unit,
+  onToggleSortDirection: () -> Unit,
   onStartSelecting: (String) -> Unit,
   onToggleSelected: (String) -> Unit,
+  onPosterNeeded: (String) -> Unit,
   modifier: Modifier = Modifier,
 ) {
   val listState = rememberLazyListState()
@@ -98,6 +104,7 @@ fun WatchlistScreen(
       entry = entry,
       onOpenBooking = onOpenBooking,
       onClick = { onOpenDetail(entry) },
+      onPosterNeeded = onPosterNeeded,
       isSelectionMode = uiState.isSelecting,
       isSelected = entry.item.id in uiState.selectedIds,
       onLongPress = { onStartSelecting(entry.item.id) },
@@ -148,9 +155,11 @@ fun WatchlistScreen(
               label = { Text("Showing soon") },
               modifier = Modifier.testTag("filter_showing_soon"),
             )
+            // Two controls rather than one six-state button: the chip picks what to sort by,
+            // the arrow flips it, and the arrow itself shows which way round you are.
             AssistChip(
               onClick = onCycleSort,
-              label = { Text(uiState.watchlistSort.label()) },
+              label = { Text(uiState.watchlistSort.label(uiState.watchlistSortDescending)) },
               leadingIcon = {
                 Icon(
                   Icons.AutoMirrored.Filled.Sort,
@@ -166,6 +175,26 @@ fun WatchlistScreen(
                   leadingIconContentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                 ),
               modifier = Modifier.testTag("sort_watchlist"),
+            )
+            AssistChip(
+              onClick = onToggleSortDirection,
+              label = {
+                Icon(
+                  if (uiState.watchlistSortDescending) Icons.Default.ArrowDownward
+                  else Icons.Default.ArrowUpward,
+                  contentDescription =
+                    if (uiState.watchlistSortDescending) "Sorting descending, tap for ascending"
+                    else "Sorting ascending, tap for descending",
+                  modifier = Modifier.size(18.dp),
+                )
+              },
+              border = null,
+              colors =
+                AssistChipDefaults.assistChipColors(
+                  containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                  labelColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                ),
+              modifier = Modifier.testTag("sort_direction"),
             )
             AssistChip(
               onClick = onAddFilm,
@@ -229,7 +258,7 @@ fun WatchlistScreen(
 }
 
 /**
- * Sync status, at the top of the list where it belongs — how many films we are watching, when we
+ * Sync status, at the top of the list where it belongs — how many films we are tracking, when we
  * last looked, whether anything broke, and a button to look again now.
  */
 @Composable
@@ -331,7 +360,7 @@ private fun ReviewBanner(count: Int, onReview: () -> Unit) {
           color = MaterialTheme.colorScheme.onSecondaryContainer,
         )
         Text(
-          "Several films share these names. Pick the right one so we watch for the right film.",
+          "Several films share these names. Pick the right one so we track the right film.",
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSecondaryContainer,
         )
@@ -352,6 +381,7 @@ private fun WatchlistCard(
   entry: WatchlistEntry,
   onOpenBooking: (String) -> Unit,
   onClick: () -> Unit,
+  onPosterNeeded: (String) -> Unit,
   isSelectionMode: Boolean = false,
   isSelected: Boolean = false,
   onLongPress: () -> Unit = {},
@@ -373,14 +403,16 @@ private fun WatchlistCard(
       },
   ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
+      WatchlistCardContent(entry, onOpenBooking, onPosterNeeded, Modifier.weight(1f))
+      // Trailing, not leading: a checkbox on the left shoves the poster and title sideways
+      // every time selection mode turns on.
       if (isSelectionMode) {
         Checkbox(
           checked = isSelected,
           onCheckedChange = { onToggleSelect() },
-          modifier = Modifier.padding(start = 8.dp).testTag("select_${entry.item.id}"),
+          modifier = Modifier.padding(end = 8.dp).testTag("select_${entry.item.id}"),
         )
       }
-      WatchlistCardContent(entry, onOpenBooking, Modifier.weight(1f))
     }
   }
 }
@@ -389,22 +421,27 @@ private fun WatchlistCard(
 private fun WatchlistCardContent(
   entry: WatchlistEntry,
   onOpenBooking: (String) -> Unit,
+  onPosterNeeded: (String) -> Unit,
   modifier: Modifier = Modifier,
 ) {
     Column(modifier.padding(16.dp)) {
       Row(verticalAlignment = Alignment.Top) {
-        // A small portrait poster once TMDB has resolved one; nothing forces the layout while
-        // it hasn't, which is deliberate — posters fill in gradually as the resolver catches up.
+        val posterShape = Modifier.size(width = 48.dp, height = 72.dp).clip(RoundedCornerShape(6.dp))
         if (entry.item.posterUrl != null) {
           AsyncImage(
             model = entry.item.posterUrl,
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            modifier =
-              Modifier.size(width = 48.dp, height = 72.dp).clip(RoundedCornerShape(6.dp)),
+            modifier = posterShape,
           )
-          Spacer(Modifier.width(12.dp))
+        } else {
+          // Ask for this film's poster only now that its card is actually on screen, so a long
+          // list fills in what you are looking at instead of what happens to be first in the
+          // database. Idempotent, so recomposition costs nothing.
+          LaunchedEffect(entry.item.id) { onPosterNeeded(entry.item.id) }
+          PosterPlaceholder(posterShape)
         }
+        Spacer(Modifier.width(12.dp))
 
         Column(Modifier.weight(1f)) {
           Row(verticalAlignment = Alignment.CenterVertically) {

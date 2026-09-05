@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CircularProgressIndicator
@@ -39,6 +40,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -98,6 +100,9 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
   var showImdbListDialog by remember { mutableStateOf(false) }
   var showReviewDialog by remember { mutableStateOf(false) }
   var showAddDialog by remember { mutableStateOf(false) }
+  // Bulk mute/unmute overwrites whatever each film was set to individually, and bulk remove is
+  // just as blunt, so both ask first.
+  var pendingBulkAction by remember { mutableStateOf<BulkAction?>(null) }
   // The id rather than a snapshot, so the popup reflects screenings arriving while it is open
   // instead of freezing the moment it was tapped.
   var detailEntryId by remember { mutableStateOf<String?>(null) }
@@ -151,19 +156,19 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
           },
           actions = {
             IconButton(
-              onClick = { viewModel.muteSelected(true) },
+              onClick = { pendingBulkAction = BulkAction.MUTE },
               modifier = Modifier.testTag("mute_selected"),
             ) {
               Icon(Icons.Default.NotificationsOff, contentDescription = "Mute selected")
             }
             IconButton(
-              onClick = { viewModel.muteSelected(false) },
+              onClick = { pendingBulkAction = BulkAction.UNMUTE },
               modifier = Modifier.testTag("unmute_selected"),
             ) {
               Icon(Icons.Outlined.Notifications, contentDescription = "Unmute selected")
             }
             IconButton(
-              onClick = { viewModel.removeSelected() },
+              onClick = { pendingBulkAction = BulkAction.REMOVE },
               modifier = Modifier.testTag("remove_selected"),
             ) {
               Icon(Icons.Default.Delete, contentDescription = "Remove selected")
@@ -171,30 +176,17 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
           },
         )
       } else {
+        // No refresh action here: the "films tracked" widget already has a sync button and its
+        // own spinner, and two spinners going at once just looked broken.
         TopAppBar(
           title = {
             Column {
               Text("KinoSthlm", style = MaterialTheme.typography.titleMedium)
               Text(
-                uiState.lastSyncSummary.ifBlank { "Stockholm cinema watch" },
+                uiState.lastSyncSummary.ifBlank { "Stockholm cinema tracker" },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
               )
-            }
-          },
-          actions = {
-            if (uiState.isSyncing) {
-              CircularProgressIndicator(
-                Modifier.padding(end = 16.dp).size(20.dp),
-                strokeWidth = 2.dp,
-              )
-            } else {
-              IconButton(
-                onClick = { viewModel.sync() },
-                modifier = Modifier.testTag("refresh"),
-              ) {
-                Icon(Icons.Default.Refresh, contentDescription = "Sync now")
-              }
             }
           },
         )
@@ -257,8 +249,10 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
             onOpenDetail = { detailEntryId = it.item.id },
             onQueryChange = { viewModel.setWatchlistQuery(it) },
             onCycleSort = { viewModel.cycleWatchlistSort() },
+            onToggleSortDirection = { viewModel.toggleWatchlistSortDirection() },
             onStartSelecting = { viewModel.startSelecting(it) },
             onToggleSelected = { viewModel.toggleSelected(it) },
+            onPosterNeeded = { viewModel.onPosterNeeded(it) },
           )
         1 ->
           ScheduleScreen(
@@ -289,6 +283,7 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
             onImportImdbList = { showImdbListDialog = true },
             onSetAutoSync = { viewModel.setAutoSync(it) },
             onSetInterval = { viewModel.setSyncInterval(it) },
+            onSetHorizon = { viewModel.setHorizonDays(it) },
             onSetNotifications = { viewModel.setNotificationsEnabled(it) },
             onSyncNow = { viewModel.sync() },
             onResolveTitles = { viewModel.resolveTitlesNow() },
@@ -310,11 +305,38 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
       },
     )
   }
+  pendingBulkAction?.let { action ->
+    val count = uiState.selectedIds.size
+    AlertDialog(
+      onDismissRequest = { pendingBulkAction = null },
+      title = { Text("${action.verb} $count film${if (count == 1) "" else "s"}?") },
+      text = { Text(action.explanation) },
+      confirmButton = {
+        TextButton(
+          onClick = {
+            when (action) {
+              BulkAction.MUTE -> viewModel.muteSelected(true)
+              BulkAction.UNMUTE -> viewModel.muteSelected(false)
+              BulkAction.REMOVE -> viewModel.removeSelected()
+            }
+            pendingBulkAction = null
+          },
+          modifier = Modifier.testTag("confirm_bulk"),
+        ) {
+          Text(action.verb)
+        }
+      },
+      dismissButton = {
+        TextButton(onClick = { pendingBulkAction = null }) { Text("Cancel") }
+      },
+    )
+  }
   if (showReviewDialog) {
     ReviewDialog(
       entries = uiState.needsReview,
       onChoose = { itemId, candidate -> viewModel.chooseCandidate(itemId, candidate) },
-      onMarkSeries = { viewModel.markAsSeries(it) },
+      onResolveByLink = { itemId, link -> viewModel.resolveByLink(itemId, link) },
+      onRemove = { viewModel.removeFilm(it) },
       onDismiss = { showReviewDialog = false },
     )
   }
@@ -327,6 +349,7 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
   detailEntry?.let { entry ->
     WatchlistDetailDialog(
       entry = entry,
+      notificationsEnabled = uiState.notificationsEnabled,
       onOpenImdb = openUrl,
       onRemove = { viewModel.removeFilm(it) },
       onTogglePin = { id, pinned -> viewModel.togglePin(id, pinned) },
@@ -335,6 +358,17 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
       onDismiss = { detailEntryId = null },
     )
   }
+}
+
+/** A bulk action waiting on confirmation, with the wording its prompt uses. */
+private enum class BulkAction(val verb: String, val explanation: String) {
+  MUTE("Mute", "These films stay on your list and keep matching, but stop notifying."),
+  UNMUTE("Unmute", "This overrides whatever each of these films was set to individually."),
+  REMOVE(
+    "Remove",
+    "They stay hidden even if a connected list still has them. Remove them upstream too and " +
+      "they go for good.",
+  ),
 }
 
 /**
