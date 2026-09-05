@@ -30,12 +30,13 @@ jobs:
       - name: Unit tests
         run: ./gradlew test --stacktrace
 
-      # Trakt credentials are per-developer. Add them as repository secrets to ship a build
-      # with Trakt enabled; without them the APK still works, minus the Trakt tab.
+      # API keys are per-developer. Add them as repository secrets to ship a fully enabled build;
+      # without them the APK still works, minus Trakt sync and title identification.
       - name: Build release APK
         env:
           TRAKT_CLIENT_ID: ${{ secrets.TRAKT_CLIENT_ID }}
           TRAKT_CLIENT_SECRET: ${{ secrets.TRAKT_CLIENT_SECRET }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
         run: ./gradlew assembleRelease --stacktrace
 
       - name: Name the APK after the tag

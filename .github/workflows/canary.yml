@@ -30,6 +30,8 @@ jobs:
         id: canary
         env:
           KINO_LIVE_TESTS: '1'
+          # Optional: with it set, the canary also checks TMDB still identifies titles.
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
         run: ./gradlew test --tests '*LiveSourceCanaryTest*' --stacktrace
 
       - name: Upload report

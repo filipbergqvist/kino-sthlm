@@ -64,7 +64,6 @@ class ImdbPublicListProvider(private val listIdOrUrl: String) : WatchlistProvide
             title = title,
             year = year,
             imdbId = imdbId,
-            source = WatchlistItem.SOURCE_IMDB,
           )
         }
         for (key in node.keys()) collectTitles(node.opt(key), into)

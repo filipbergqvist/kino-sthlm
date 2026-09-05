@@ -119,6 +119,23 @@ object TitleMatcher {
     return withoutArticle.joinToString(" ")
   }
 
+  /**
+   * Like [normalize] but keeps leading articles and number words as written.
+   *
+   * Use this when deciding whether two strings name the *same work*, rather than whether a
+   * cinema listing refers to a watchlisted film. The looser rules are right for matching a
+   * listing — a cinema may drop "The" — but wrong for identity: article-stripping makes
+   * "The Sopranos" collide with the unrelated film "Sopranos".
+   */
+  fun normalizeStrict(raw: String): String =
+    Normalizer.normalize(raw.lowercase(Locale.ROOT), Normalizer.Form.NFD)
+      .replace(Regex("""\p{Mn}+"""), "")
+      .replace('ø', 'o')
+      .replace('æ', 'a')
+      .replace('ß', 's')
+      .replace(Regex("[^a-z0-9]+"), " ")
+      .trim()
+
   /** Levenshtein distance expressed as a 0..1 similarity ratio. */
   fun similarity(a: String, b: String): Double {
     if (a == b) return 1.0

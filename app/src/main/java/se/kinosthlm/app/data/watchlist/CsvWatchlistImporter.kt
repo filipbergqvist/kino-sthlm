@@ -25,13 +25,19 @@ object CsvWatchlistImporter {
   private val IMDB_ID_CELL = Regex("""^tt\d{5,}$""")
 
   /**
-   * A year in the title itself, as Google TV writes disambiguated entries: "Ghostbusters (1984)".
-   * Only trailing, so "2001: A Space Odyssey" and "Blade Runner 2049" keep their numbers.
+   * A year in the title itself, as Google TV writes disambiguated entries: "Nosferatu (1922)".
+   * Only trailing, so a title ending in a number of its own keeps it.
    */
   private val TRAILING_YEAR = Regex("""\s*\((19|20)\d{2}\)\s*$""")
 
-  /** Parse [input] as CSV. [sourceId] tags the resulting items, e.g. [WatchlistItem.SOURCE_IMDB]. */
-  fun parse(input: InputStream, sourceId: String): List<WatchlistItem> {
+  /**
+   * Parse [input] as CSV.
+   *
+   * [sourceId] is accepted for symmetry with the other providers but is not stamped on the
+   * items: which sources contributed a film is recorded separately, so one film can belong to
+   * several lists at once.
+   */
+  fun parse(input: InputStream, @Suppress("UNUSED_PARAMETER") sourceId: String): List<WatchlistItem> {
     // removePrefix strips a UTF-8 BOM, which some exporters prepend and which would otherwise
     // glue itself to the first header name and break column detection.
     val rows = readCsv(input.bufferedReader().readText().removePrefix("﻿"))
@@ -50,8 +56,8 @@ object CsvWatchlistImporter {
         if (raw.startsWith("http") || IMDB_ID_CELL.matches(raw)) return@mapNotNull null
 
         // Google TV has no year column; it disambiguates in the title instead
-        // ("Ghostbusters (1984)"). Lift that out — a year is what lets a remake match the
-        // right entry, and it would otherwise be stuck inside the title where nothing sees it.
+        // ("Nosferatu (1922)"). Lift that out — a year is what lets a remake match the right
+        // entry, and it would otherwise be stuck inside the title where nothing sees it.
         val titleYear = TRAILING_YEAR.find(raw)?.value?.filter(Char::isDigit)?.toIntOrNull()
         val title = if (titleYear != null) raw.replace(TRAILING_YEAR, "").trim() else raw
 
@@ -67,10 +73,41 @@ object CsvWatchlistImporter {
           title = title,
           year = year,
           imdbId = imdbId,
-          source = sourceId,
         )
       }
-      .distinctBy { it.id }
+      .let(::separateRepeats)
+  }
+
+  /**
+   * Two rows sharing a title with nothing to tell them apart are two different films the user
+   * watchlisted — the 1922 Nosferatu and a later remake, say. Collapsing them on their identical
+   * generated id would silently drop one, so instead they are kept as separate entries and
+   * flagged for review; resolution gives each its own IMDb id.
+   *
+   * Rows that share an id *and* carry a real IMDb id are genuinely the same film listed twice,
+   * and those are deduplicated.
+   */
+  private fun separateRepeats(items: List<WatchlistItem>): List<WatchlistItem> {
+    val seen = mutableMapOf<String, Int>()
+    val out = mutableListOf<WatchlistItem>()
+
+    for (item in items) {
+      val occurrence = (seen[item.id] ?: 0) + 1
+      seen[item.id] = occurrence
+
+      when {
+        occurrence == 1 -> out += item
+        // A repeat of a row with a real id is a duplicate; drop it.
+        item.imdbId != null -> Unit
+        else -> {
+          // Retro-flag the first occurrence too: it is equally ambiguous.
+          val firstIndex = out.indexOfFirst { it.id == item.id }
+          if (firstIndex >= 0) out[firstIndex] = out[firstIndex].copy(needsReview = true)
+          out += item.copy(id = "${item.id}#$occurrence", needsReview = true)
+        }
+      }
+    }
+    return out
   }
 
   private fun List<String>.indexOfFirstIn(keys: List<String>): Int? =

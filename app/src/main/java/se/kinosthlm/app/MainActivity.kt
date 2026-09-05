@@ -50,9 +50,10 @@ import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import se.kinosthlm.app.data.model.WatchlistItem
-import se.kinosthlm.app.ui.screens.AddFilmDialog
+import se.kinosthlm.app.ui.screens.AddByImdbLinkDialog
 import se.kinosthlm.app.ui.screens.CinemasScreen
 import se.kinosthlm.app.ui.screens.ImdbListDialog
+import se.kinosthlm.app.ui.screens.ReviewDialog
 import se.kinosthlm.app.ui.screens.ScheduleScreen
 import se.kinosthlm.app.ui.screens.SettingsScreen
 import se.kinosthlm.app.ui.screens.WatchlistScreen
@@ -87,8 +88,9 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
   val context = LocalContext.current
 
   var tab by remember { mutableIntStateOf(startTab) }
-  var showAddDialog by remember { mutableStateOf(false) }
   var showImdbListDialog by remember { mutableStateOf(false) }
+  var showReviewDialog by remember { mutableStateOf(false) }
+  var showAddDialog by remember { mutableStateOf(false) }
   val snackbar = remember { SnackbarHostState() }
 
   /**
@@ -201,10 +203,13 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
         0 ->
           WatchlistScreen(
             uiState = uiState,
+            onSync = { viewModel.sync() },
             onToggleShowingSoon = { viewModel.toggleShowingSoonOnly() },
-            onRemove = { viewModel.removeFilm(it) },
             onOpenBooking = openUrl,
+            onOpenSources = { tab = 3 },
+            onReview = { showReviewDialog = true },
             onAddFilm = { showAddDialog = true },
+            onRemove = { viewModel.removeFilm(it) },
           )
         1 ->
           ScheduleScreen(
@@ -237,6 +242,7 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
             onSetInterval = { viewModel.setSyncInterval(it) },
             onSetNotifications = { viewModel.setNotificationsEnabled(it) },
             onSyncNow = { viewModel.sync() },
+            onResolveTitles = { viewModel.resolveTitlesNow() },
             onTestNotification = { viewModel.sendTestNotification() },
             onOpenUrl = openUrl,
           )
@@ -245,9 +251,17 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
   }
 
   if (showAddDialog) {
-    AddFilmDialog(
+    AddByImdbLinkDialog(
       onDismiss = { showAddDialog = false },
-      onAdd = { title, year -> viewModel.addManualFilm(title, year) },
+      onAdd = { viewModel.addByImdbLink(it) },
+    )
+  }
+  if (showReviewDialog) {
+    ReviewDialog(
+      entries = uiState.needsReview,
+      onChoose = { itemId, candidate -> viewModel.chooseCandidate(itemId, candidate) },
+      onMarkSeries = { viewModel.markAsSeries(it) },
+      onDismiss = { showReviewDialog = false },
     )
   }
   if (showImdbListDialog) {

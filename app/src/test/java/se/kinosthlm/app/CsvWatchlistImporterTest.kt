@@ -6,6 +6,7 @@ import org.junit.Test
 import se.kinosthlm.app.data.model.WatchlistItem
 import se.kinosthlm.app.data.watchlist.CsvWatchlistImporter
 
+/** Films referenced here are public domain, or invented to exercise a formatting edge case. */
 class CsvWatchlistImporterTest {
 
   private fun parse(csv: String, source: String = WatchlistItem.SOURCE_IMDB) =
@@ -16,17 +17,17 @@ class CsvWatchlistImporterTest {
     val csv =
       """
       Position,Const,Created,Modified,Description,Title,Original Title,URL,Title Type,IMDb Rating,Runtime (mins),Year,Genres,Num Votes,Release Date,Directors
-      1,tt15398776,2024-10-01,,,The Substance,The Substance,https://www.imdb.com/title/tt15398776/,Movie,7.4,141,2024,"Drama, Horror",250000,2024-09-20,Coralie Fargeat
-      2,tt0062622,2024-10-02,,,2001: A Space Odyssey,2001: A Space Odyssey,https://www.imdb.com/title/tt0062622/,Movie,8.3,149,1968,"Adventure, Sci-Fi",700000,1968-04-02,Stanley Kubrick
+      1,tt0013442,2026-10-01,,,Nosferatu,Nosferatu,https://www.imdb.com/title/tt0013442/,Movie,7.9,94,1922,"Fantasy, Horror",120000,1922-03-04,F.W. Murnau
+      2,tt0017136,2026-10-02,,,Metropolis,Metropolis,https://www.imdb.com/title/tt0017136/,Movie,8.3,153,1927,"Drama, Sci-Fi",180000,1927-01-10,Fritz Lang
       """
         .trimIndent()
 
     val items = parse(csv)
     assertEquals(2, items.size)
-    assertEquals("The Substance", items[0].title)
-    assertEquals("tt15398776", items[0].imdbId)
-    assertEquals(2024, items[0].year)
-    assertEquals("imdb:tt15398776", items[0].id)
+    assertEquals("Nosferatu", items[0].title)
+    assertEquals("tt0013442", items[0].imdbId)
+    assertEquals(1922, items[0].year)
+    assertEquals("imdb:tt0013442", items[0].id)
   }
 
   @Test
@@ -34,14 +35,14 @@ class CsvWatchlistImporterTest {
     val csv =
       """
       Const,Title,Year
-      tt0000001,"Good Night, and Good Luck.",2005
-      tt0000002,"The ""Burning"" Plain",2008
+      tt0000001,"Häxan, or Witchcraft Through the Ages",1922
+      tt0000002,"The ""Phantom"" Carriage",1921
       """
         .trimIndent()
 
     val items = parse(csv)
-    assertEquals("Good Night, and Good Luck.", items[0].title)
-    assertEquals("The \"Burning\" Plain", items[1].title)
+    assertEquals("Häxan, or Witchcraft Through the Ages", items[0].title)
+    assertEquals("The \"Phantom\" Carriage", items[1].title)
   }
 
   @Test
@@ -50,15 +51,14 @@ class CsvWatchlistImporterTest {
     val csv =
       """
       Namn,Typ
-      Persona,Film
-      Sommaren med Monika,Film
+      Körkarlen,Film
+      Gösta Berlings saga,Film
       """
         .trimIndent()
 
     val items = parse(csv, WatchlistItem.SOURCE_GOOGLE_TV)
     assertEquals(2, items.size)
-    assertEquals("Persona", items[0].title)
-    assertEquals(WatchlistItem.SOURCE_GOOGLE_TV, items[0].source)
+    assertEquals("Körkarlen", items[0].title)
   }
 
   @Test
@@ -66,10 +66,10 @@ class CsvWatchlistImporterTest {
     val csv =
       """
       Title,Release Date
-      Anora,2024-10-18
+      The General,1926-12-31
       """
         .trimIndent()
-    assertEquals(2024, parse(csv).single().year)
+    assertEquals(1926, parse(csv).single().year)
   }
 
   @Test
@@ -77,21 +77,40 @@ class CsvWatchlistImporterTest {
     val csv =
       """
       Const,Title,Year
-      tt0000001,Persona,1966
+      tt0000001,The General,1926
 
-      tt0000002,,1970
+      tt0000002,,1927
       """
         .trimIndent()
     assertEquals(1, parse(csv).size)
   }
 
   @Test
-  fun `deduplicates repeated entries`() {
+  fun `keeps repeated titles apart so the user can disambiguate them`() {
+    // Two rows, same title, no year: two different films the user watchlisted. Collapsing them
+    // silently loses one, so they survive as separate entries flagged for review.
+    val csv =
+      """
+      Title
+      Nosferatu
+      Nosferatu
+      """
+        .trimIndent()
+    val items = parse(csv, WatchlistItem.SOURCE_GOOGLE_TV)
+    assertEquals(2, items.size)
+    assertEquals(2, items.map { it.id }.distinct().size)
+    assertTrue(items.all { it.title == "Nosferatu" })
+    assertTrue(items.all { it.needsReview })
+  }
+
+  @Test
+  fun `deduplicates rows that are genuinely identical`() {
+    // Same IMDb id twice is one film listed twice, not two films.
     val csv =
       """
       Const,Title,Year
-      tt0000001,Persona,1966
-      tt0000001,Persona,1966
+      tt0000001,The General,1926
+      tt0000001,The General,1926
       """
         .trimIndent()
     assertEquals(1, parse(csv).size)
@@ -110,8 +129,7 @@ class CsvWatchlistImporterTest {
     val items = googleTakeout()
     // 12 films; the blank second row Takeout always emits is dropped.
     assertEquals(12, items.size)
-    assertEquals("Hell or High Water", items[0].title)
-    assertTrue(items.all { it.source == WatchlistItem.SOURCE_GOOGLE_TV })
+    assertEquals("The Cabinet of Dr. Caligari", items[0].title)
     // Takeout's URL column is a useless placeholder, so there are no ids to carry.
     assertTrue(items.all { it.imdbId == null })
   }
@@ -119,39 +137,38 @@ class CsvWatchlistImporterTest {
   @Test
   fun `lifts a year out of a google tv title`() {
     // Takeout has no year column; it disambiguates inside the title instead.
-    val ghostbusters = googleTakeout().single { it.title.startsWith("Ghostbusters") }
-    assertEquals("Ghostbusters", ghostbusters.title)
-    assertEquals(1984, ghostbusters.year)
+    val nosferatu = googleTakeout().single { it.title == "Nosferatu" }
+    assertEquals(1922, nosferatu.year)
   }
 
   @Test
   fun `keeps numbers that are part of the title`() {
     val items = googleTakeout()
-    assertTrue(items.any { it.title == "2001: A Space Odyssey" && it.year == null })
-    assertTrue(items.any { it.title == "Blade Runner 2049" && it.year == null })
+    assertTrue(items.any { it.title == "2001 Nights of Cinema" && it.year == null })
+    assertTrue(items.any { it.title == "Metropolis 2026" && it.year == null })
   }
 
   @Test
   fun `preserves non-ascii titles`() {
     val titles = googleTakeout().map { it.title }
-    assertTrue(titles.contains("Le Samouraï"))
-    assertTrue(titles.contains("Tár"))
-    assertTrue(titles.contains("SOS – En segelsällskapsresa"))
+    assertTrue(titles.contains("Körkarlen"))
+    assertTrue(titles.contains("Gösta Berlings saga"))
+    assertTrue(titles.contains("SOS – Ett drama i tre akter"))
   }
 
   @Test
   fun `keeps commas inside quoted google tv titles`() {
     val titles = googleTakeout().map { it.title }
-    assertTrue(titles.contains("Lust, Caution"))
-    assertTrue(titles.contains("The Good, the Bad and the Ugly"))
+    assertTrue(titles.contains("Häxan, or Witchcraft Through the Ages"))
+    assertTrue(titles.contains("The Good, the Bold and the Silent"))
   }
 
   @Test
   fun `strips a utf8 byte order mark from the header`() {
-    val csv = "﻿Title,Note,URL\nPersona,,https://www.google.com\n"
+    val csv = "﻿Title,Note,URL\nThe General,,https://www.google.com\n"
     val items = parse(csv, WatchlistItem.SOURCE_GOOGLE_TV)
     assertEquals(1, items.size)
-    assertEquals("Persona", items.single().title)
+    assertEquals("The General", items.single().title)
   }
 
   @Test
@@ -162,10 +179,10 @@ class CsvWatchlistImporterTest {
 
   @Test
   fun `handles crlf line endings`() {
-    val csv = "Const,Title,Year\r\ntt0000001,Persona,1966\r\n"
+    val csv = "Const,Title,Year\r\ntt0000001,The General,1926\r\n"
     val items = parse(csv)
     assertEquals(1, items.size)
-    assertEquals("Persona", items[0].title)
+    assertEquals("The General", items[0].title)
     assertTrue(items[0].title.none { it == '\r' })
   }
 }

@@ -162,9 +162,9 @@ class CinemaSourceParsingTest {
       SkandiaSource()
         .parseFilmPage(
           html = fixture("skandia_film.html"),
-          baseUrl = "https://bioskandia.se/filmer/la-grazia/",
+          baseUrl = "https://bioskandia.se/filmer/nosferatu/",
           cinema = venue,
-          title = "La Grazia",
+          title = "Nosferatu",
           // Pinned so the year inference is deterministic; the fixture says "12 Sep".
           today = LocalDate.of(2026, 9, 5),
         )

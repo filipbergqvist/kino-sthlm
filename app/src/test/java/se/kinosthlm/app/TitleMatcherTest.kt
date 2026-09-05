@@ -9,7 +9,10 @@ import se.kinosthlm.app.data.model.WatchlistItem
 
 /**
  * Matching is where a bug is expensive: a false positive sends someone to the wrong film.
- * These cases are the ones the previous hardcoded alias list got wrong.
+ * These cases are the ones the old hardcoded alias list got wrong.
+ *
+ * Real films used here are public domain; the rest are invented, because the matcher only ever
+ * sees strings and inventing them keeps the intent of each case obvious.
  */
 class TitleMatcherTest {
 
@@ -23,58 +26,80 @@ class TitleMatcherTest {
 
   @Test
   fun `matches on imdb id even when titles differ`() {
-    val watchlist = listOf(film("Pojken och hägern", 2023, "tt6587046"))
+    val watchlist = listOf(film("Körkarlen", 1921, "tt0012364"))
     val match =
       TitleMatcher.findMatch(
-        MatchCandidate(title = "The Boy and the Heron", year = 2023, imdbId = "tt6587046"),
+        MatchCandidate(title = "The Phantom Carriage", year = 1921, imdbId = "tt0012364"),
         watchlist,
       )
-    assertEquals("Pojken och hägern", match?.title)
+    assertEquals("Körkarlen", match?.title)
+  }
+
+  @Test
+  fun `matches a swedish original title against an english listing`() {
+    // A cinema may list either; the watchlist may hold either.
+    val watchlist = listOf(film("The Phantom Carriage", 1921, imdbId = null))
+    val match =
+      TitleMatcher.findMatch(
+        MatchCandidate(title = "Körkarlen", originalTitle = "The Phantom Carriage", year = 1921),
+        watchlist,
+      )
+    assertEquals("The Phantom Carriage", match?.title)
   }
 
   @Test
   fun `matches ignoring case punctuation and leading article`() {
-    val watchlist = listOf(film("The Zone of Interest", 2023))
+    val watchlist = listOf(film("The Cabinet of Dr. Caligari", 1920))
     val match =
-      TitleMatcher.findMatch(MatchCandidate(title = "zone of interest", year = 2023), watchlist)
-    assertEquals("The Zone of Interest", match?.title)
+      TitleMatcher.findMatch(
+        MatchCandidate(title = "cabinet of dr caligari", year = 1920),
+        watchlist,
+      )
+    assertEquals("The Cabinet of Dr. Caligari", match?.title)
   }
 
   @Test
   fun `folds swedish characters so ascii listings still match`() {
-    val watchlist = listOf(film("Pojken och hägern", 2023))
-    val match = TitleMatcher.findMatch(MatchCandidate(title = "Pojken och hagern"), watchlist)
-    assertEquals("Pojken och hägern", match?.title)
+    val watchlist = listOf(film("Gösta Berlings saga", 1924))
+    val match = TitleMatcher.findMatch(MatchCandidate(title = "Gosta Berlings saga"), watchlist)
+    assertEquals("Gösta Berlings saga", match?.title)
   }
 
   @Test
   fun `treats roman numerals as digits`() {
-    val watchlist = listOf(film("Dune: Part Two", 2024))
+    val watchlist = listOf(film("Nightfall: Part Two", 1926))
     val match =
-      TitleMatcher.findMatch(MatchCandidate(title = "Dune Part II", year = 2024), watchlist)
-    assertEquals("Dune: Part Two", match?.title)
+      TitleMatcher.findMatch(MatchCandidate(title = "Nightfall Part II", year = 1926), watchlist)
+    assertEquals("Nightfall: Part Two", match?.title)
+  }
+
+  @Test
+  fun `folds spelled-out sequel numbers across languages`() {
+    val watchlist = listOf(film("Nightfall: Part Two", 1926))
+    val match =
+      TitleMatcher.findMatch(MatchCandidate(title = "Nightfall: Del 2", year = 1926), watchlist)
+    assertEquals("Nightfall: Part Two", match?.title)
   }
 
   @Test
   fun `does not match a different film that merely contains the title`() {
-    // The old substring rule matched "Alien" against "Alien: Romulus" — and vice versa.
-    val watchlist = listOf(film("Alien", 1979))
+    // The old substring rule matched "Harbour" against "Harbour: Nightfall" in both directions.
+    val watchlist = listOf(film("Harbour", 1921))
     assertNull(
-      TitleMatcher.findMatch(MatchCandidate(title = "Alien: Romulus", year = 2024), watchlist)
+      TitleMatcher.findMatch(MatchCandidate(title = "Harbour: Nightfall", year = 2024), watchlist)
     )
   }
 
   @Test
-  fun `does not confuse a sequel with its original`() {
-    val watchlist = listOf(film("Aliens", 1986))
-    assertNull(TitleMatcher.findMatch(MatchCandidate(title = "Alien", year = 1979), watchlist))
+  fun `does not confuse a plural sequel with its original`() {
+    val watchlist = listOf(film("Harbours", 1986))
+    assertNull(TitleMatcher.findMatch(MatchCandidate(title = "Harbour", year = 1979), watchlist))
   }
 
   @Test
   fun `does not fuzzy match without a year on both sides`() {
     val watchlist = listOf(film("Nosferatu", 1922))
-    // No year on the listing: the fuzzy tier must not fire, and the titles are not equal.
-    assertNull(TitleMatcher.findMatch(MatchCandidate(title = "Nosferatu the Vampyre"), watchlist))
+    assertNull(TitleMatcher.findMatch(MatchCandidate(title = "Nosferatu in Venice"), watchlist))
   }
 
   @Test
@@ -86,22 +111,14 @@ class TitleMatcherTest {
 
   @Test
   fun `allows a one year drift between databases`() {
-    val watchlist = listOf(film("Anora", 2024))
-    val match = TitleMatcher.findMatch(MatchCandidate(title = "Anora", year = 2025), watchlist)
-    assertEquals("Anora", match?.title)
+    val watchlist = listOf(film("Metropolis", 1927))
+    val match = TitleMatcher.findMatch(MatchCandidate(title = "Metropolis", year = 1926), watchlist)
+    assertEquals("Metropolis", match?.title)
   }
 
   @Test
   fun `returns null for an empty watchlist`() {
-    assertNull(TitleMatcher.findMatch(MatchCandidate(title = "Anything", year = 2024), emptyList()))
-  }
-
-  @Test
-  fun `folds spelled-out sequel numbers`() {
-    val watchlist = listOf(film("Dune: Part Two", 2024))
-    val match =
-      TitleMatcher.findMatch(MatchCandidate(title = "Dune: Del 2", year = 2024), watchlist)
-    assertEquals("Dune: Part Two", match?.title)
+    assertNull(TitleMatcher.findMatch(MatchCandidate(title = "Anything", year = 1925), emptyList()))
   }
 
   @Test
@@ -113,8 +130,8 @@ class TitleMatcherTest {
 
   @Test
   fun `normalize strips articles punctuation and case`() {
-    assertEquals("substance", TitleMatcher.normalize("The Substance"))
+    assertEquals("general", TitleMatcher.normalize("The General"))
     assertEquals("2001 a space odyssey", TitleMatcher.normalize("2001: A Space Odyssey"))
-    assertEquals("amelie fran montmartre", TitleMatcher.normalize("AMELIE FRÅN MONTMARTRE"))
+    assertEquals("haxan", TitleMatcher.normalize("HÄXAN"))
   }
 }

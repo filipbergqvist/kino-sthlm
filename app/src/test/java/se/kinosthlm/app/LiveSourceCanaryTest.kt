@@ -157,6 +157,28 @@ class LiveSourceCanaryTest {
   }
 
   @Test
+  fun `tmdb still identifies films, series and ambiguous titles`() = runTest {
+    val lookup = se.kinosthlm.app.data.watchlist.TitleLookup()
+    assumeTrue("Set TMDB_API_KEY to run this canary", lookup.isConfigured)
+
+    // A Swedish title TMDB indexes under its English release name: the alias path.
+    val swedish = lookup.lookup("Körkarlen")
+    assertTrue("No candidates for Körkarlen", swedish.films.isNotEmpty())
+
+    // A title shared by several films: the reason the review flow exists.
+    val ambiguous = lookup.lookup("Nosferatu")
+    assertTrue("Nosferatu should offer more than one film", ambiguous.films.size > 1)
+
+    // Something that is unambiguously not a film, so series filtering keeps working.
+    val series = lookup.lookup("The Sopranos")
+    assertTrue("The Sopranos should not be classified as a film", series.isSeries)
+
+    // And an IMDb link must still resolve to exactly one film, for adding by hand.
+    val byId = lookup.lookupByImdbId("https://www.imdb.com/title/tt0013442/")
+    assertTrue("IMDb id lookup returned nothing", byId != null && byId.isFilm)
+  }
+
+  @Test
   fun `skandia index still lists films`() = runTest {
     // Index-only: whether any given film is on the watchlist varies week to week.
     val films =

@@ -18,16 +18,40 @@ data class WatchlistItem(
   val traktId: Int? = null,
   val posterUrl: String? = null,
   val director: String? = null,
-  /** Provider id, see [se.kinosthlm.app.data.watchlist.WatchlistProvider]. */
-  val source: String = SOURCE_MANUAL,
+  /**
+   * Whether this is a film. Google TV exports mix films and TV series with nothing to tell them
+   * apart, and a series can never have a cinema screening, so we resolve and then exclude them.
+   */
+  val titleType: String = TYPE_UNKNOWN,
+  /**
+   * True when we could not tell which film this is — typically a title shared by several films
+   * with no year to separate them. The user picks the right one; until then it is not matched.
+   */
+  val needsReview: Boolean = false,
+  /**
+   * Hidden because the user deleted it here, even though a source still lists it.
+   *
+   * Without this a manual delete would simply undo itself on the next sync. The row is kept so
+   * the suppression survives; it is discarded for real once no source lists the film any more.
+   */
+  val suppressed: Boolean = false,
   val addedAt: Long = System.currentTimeMillis(),
   val overview: String? = null,
 ) {
+  val isFilm: Boolean get() = titleType != TYPE_SERIES
+
+  /** Only confidently identified, still-wanted films are worth matching against listings. */
+  val isMatchable: Boolean get() = isFilm && !needsReview && !suppressed
+
   companion object {
     const val SOURCE_TRAKT = "trakt"
     const val SOURCE_IMDB = "imdb"
     const val SOURCE_GOOGLE_TV = "google_tv"
     const val SOURCE_MANUAL = "manual"
+
+    const val TYPE_MOVIE = "movie"
+    const val TYPE_SERIES = "series"
+    const val TYPE_UNKNOWN = "unknown"
 
     fun idFor(imdbId: String?, title: String, year: Int?): String =
       if (!imdbId.isNullOrBlank()) {
@@ -88,6 +112,40 @@ data class NotificationLog(
   val cinemaName: String,
   val bookingUrl: String,
   val notifiedAt: Long = System.currentTimeMillis(),
+)
+
+/**
+ * Which source put a film on the watchlist. A film can have several.
+ *
+ * This is what makes removal upstream work: a sync replaces one source's rows wholesale, and a
+ * film left with no rows at all is no longer on anybody's watchlist, so it goes. Drop a film
+ * from IMDb while keeping it in Trakt and it stays; drop it from both and it disappears.
+ */
+@Entity(
+  tableName = "watchlist_sources",
+  primaryKeys = ["itemId", "sourceId"],
+  indices = [Index("sourceId")],
+)
+data class WatchlistSource(
+  val itemId: String,
+  /** One of [WatchlistItem]'s SOURCE_ constants. */
+  val sourceId: String,
+  val addedAt: Long = System.currentTimeMillis(),
+)
+
+/**
+ * A possible identity for an ambiguous watchlist entry, offered to the user to choose between.
+ */
+@Entity(tableName = "title_candidates", indices = [Index("watchlistItemId")])
+data class TitleCandidate(
+  @PrimaryKey val id: String,
+  val watchlistItemId: String,
+  val tmdbId: Int,
+  val imdbId: String? = null,
+  val title: String,
+  val year: Int?,
+  val titleType: String,
+  val posterUrl: String? = null,
 )
 
 /** Per-source outcome of one sync, so the UI can say *which* cinema failed and why. */

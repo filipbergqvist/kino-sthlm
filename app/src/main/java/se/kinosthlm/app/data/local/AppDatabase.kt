@@ -7,7 +7,9 @@ import androidx.room.RoomDatabase
 import se.kinosthlm.app.data.model.Cinema
 import se.kinosthlm.app.data.model.NotificationLog
 import se.kinosthlm.app.data.model.Screening
+import se.kinosthlm.app.data.model.TitleCandidate
 import se.kinosthlm.app.data.model.WatchlistItem
+import se.kinosthlm.app.data.model.WatchlistSource
 import se.kinosthlm.app.data.source.BioRioSource
 import se.kinosthlm.app.data.source.CapitolSource
 import se.kinosthlm.app.data.source.FilmstadenSource
@@ -20,8 +22,10 @@ import se.kinosthlm.app.data.source.TellusSource
     Cinema::class,
     Screening::class,
     NotificationLog::class,
+    TitleCandidate::class,
+    WatchlistSource::class,
   ],
-  version = 2,
+  version = 4,
   exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -32,6 +36,8 @@ abstract class AppDatabase : RoomDatabase() {
   abstract fun cinemaDao(): CinemaDao
 
   abstract fun notificationDao(): NotificationDao
+
+  abstract fun titleCandidateDao(): TitleCandidateDao
 
   companion object {
     @Volatile private var INSTANCE: AppDatabase? = null

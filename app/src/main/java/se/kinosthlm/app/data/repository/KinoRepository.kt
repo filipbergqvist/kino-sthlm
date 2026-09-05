@@ -17,12 +17,16 @@ import se.kinosthlm.app.data.model.NotificationLog
 import se.kinosthlm.app.data.model.Screening
 import se.kinosthlm.app.data.model.SourceResult
 import se.kinosthlm.app.data.model.SyncReport
+import se.kinosthlm.app.data.model.TitleCandidate
 import se.kinosthlm.app.data.model.WatchlistItem
+import se.kinosthlm.app.data.model.WatchlistSource
 import se.kinosthlm.app.data.prefs.SettingsStore
 import se.kinosthlm.app.data.source.CinemaSourceRegistry
 import se.kinosthlm.app.data.source.RawScreening
 import se.kinosthlm.app.data.watchlist.CsvWatchlistImporter
 import se.kinosthlm.app.data.watchlist.ImdbPublicListProvider
+import se.kinosthlm.app.data.watchlist.TitleLookup
+import se.kinosthlm.app.data.watchlist.TitleResolver
 import se.kinosthlm.app.data.watchlist.TraktProvider
 import se.kinosthlm.app.notification.NotificationHelper
 
@@ -42,11 +46,21 @@ private constructor(
 ) {
 
   val trakt: TraktProvider = TraktProvider(context)
+  private val resolver = TitleResolver()
+  private val lookup = TitleLookup()
 
   val watchlist: Flow<List<WatchlistItem>> = database.watchlistDao().observeAll()
   val upcomingScreenings: Flow<List<Screening>> = database.screeningDao().observeUpcoming()
   val cinemas: Flow<List<Cinema>> = database.cinemaDao().observeAll()
   val notificationLogs: Flow<List<NotificationLog>> = database.notificationDao().observeAll()
+
+  /** Entries where several films share the title and the user has to choose. */
+  val needingReview: Flow<List<WatchlistItem>> = database.watchlistDao().observeNeedingReview()
+  val reviewCandidates: Flow<List<TitleCandidate>> = database.titleCandidateDao().observeAll()
+  val seriesCount: Flow<Int> = database.watchlistDao().observeSeriesCount()
+
+  /** Which lists each film came from, so the UI can show its provenance. */
+  val watchlistSources: Flow<List<WatchlistSource>> = database.watchlistDao().observeSources()
 
   // --- Cinemas ---
 
@@ -64,21 +78,6 @@ private constructor(
 
   // --- Watchlist ---
 
-  suspend fun addManualItem(title: String, year: Int?) =
-    withContext(Dispatchers.IO) {
-      val item =
-        WatchlistItem(
-          id = WatchlistItem.idFor(null, title, year),
-          title = title.trim(),
-          year = year,
-          source = WatchlistItem.SOURCE_MANUAL,
-        )
-      database.watchlistDao().insertAll(listOf(item))
-    }
-
-  suspend fun removeItem(id: String) =
-    withContext(Dispatchers.IO) { database.watchlistDao().deleteById(id) }
-
   /** Import an IMDb or Google TV CSV the user picked with the system file picker. */
   suspend fun importCsv(uri: Uri, sourceId: String): Int =
     withContext(Dispatchers.IO) {
@@ -90,19 +89,149 @@ private constructor(
       if (items.isEmpty()) {
         error("No films found in that file. Is it the watchlist export?")
       }
-      // Replace this provider's previous import rather than accumulating stale titles.
-      database.watchlistDao().deleteBySource(sourceId)
-      database.watchlistDao().insertAll(items)
+      // The import *is* that source's list now: anything it used to contribute and no longer
+      // does loses its claim, and a film nothing claims any more is deleted.
+      database.watchlistDao().replaceSource(sourceId, items)
+      database.titleCandidateDao().deleteOrphans()
       items.size
     }
 
   suspend fun importImdbPublicList(listUrl: String): Int =
     withContext(Dispatchers.IO) {
       val items = ImdbPublicListProvider(listUrl).sync()
-      database.watchlistDao().deleteBySource(WatchlistItem.SOURCE_IMDB)
-      database.watchlistDao().insertAll(items)
+      database.watchlistDao().replaceSource(WatchlistItem.SOURCE_IMDB, items)
+      database.titleCandidateDao().deleteOrphans()
       settings.setImdbListUrl(listUrl)
       items.size
+    }
+
+  /**
+   * Add a film by hand from an IMDb link.
+   *
+   * Taking the link rather than a typed title and year means the entry arrives already
+   * identified — exact id, exact year — so it can never be the wrong film of two sharing a name,
+   * and it needs no review pass. Manual provenance is only cleared by deleting it by hand, so it
+   * survives every sync.
+   *
+   * Returns the film's title.
+   */
+  suspend fun addByImdbLink(input: String): String =
+    withContext(Dispatchers.IO) {
+      val imdbId =
+        TitleLookup.extractImdbId(input)
+          ?: error("That does not look like an IMDb link. Expected something containing tt…")
+
+      val candidate =
+        lookup.lookupByImdbId(imdbId)
+          ?: error("IMDb has no title with the id $imdbId, or the lookup is unavailable.")
+
+      if (!candidate.isFilm) {
+        error("\"${candidate.title}\" is a TV series, which never plays in cinemas.")
+      }
+
+      database.watchlistDao()
+        .addManual(
+          WatchlistItem(
+            id = WatchlistItem.idFor(candidate.imdbId, candidate.title, candidate.year),
+            title = candidate.title,
+            year = candidate.year,
+            imdbId = candidate.imdbId,
+            posterUrl = candidate.posterUrl,
+            titleType = WatchlistItem.TYPE_MOVIE,
+          )
+        )
+      candidate.title
+    }
+
+  /**
+   * Remove a film from the watchlist here.
+   *
+   * If a connected list still contains it, the entry is suppressed rather than deleted —
+   * otherwise the next sync would put it straight back. Remove it upstream too and it goes for
+   * good on the following sync.
+   */
+  suspend fun removeItem(id: String) =
+    withContext(Dispatchers.IO) {
+      database.watchlistDao().removeByUser(id)
+      database.titleCandidateDao().deleteFor(id)
+    }
+
+  // --- Identifying titles ---
+
+  /**
+   * Put IMDb ids, years and a film/series verdict on entries that arrived as bare titles.
+   *
+   * Google TV exports need this; Trakt and IMDb already carry ids and skip it. Safe to call
+   * repeatedly — it only touches entries that are still unidentified.
+   */
+  suspend fun resolveTitles(
+    limit: Int = RESOLVE_PER_RUN,
+    onProgress: (Int, Int) -> Unit = { _, _ -> },
+  ): TitleResolver.Outcome =
+    withContext(Dispatchers.IO) {
+      val before = database.watchlistDao().getAll()
+      val outcome = resolver.resolve(before, limit, onProgress)
+      for (resolution in outcome.resolutions) {
+        val original = before.first { it.id == resolution.item.id || it.id == resolution.oldId }
+        // Identification can change an entry's key, so route it through the move.
+        database.watchlistDao().reIdentify(original.id, resolution.item)
+      }
+      val candidates = outcome.resolutions.flatMap { it.candidates }
+      if (candidates.isNotEmpty()) database.titleCandidateDao().insertAll(candidates)
+      database.titleCandidateDao().deleteOrphans()
+      outcome
+    }
+
+  /**
+   * Record the user's choice for an ambiguous title: adopt that film's id and year, clear the
+   * flag, and discard the alternatives.
+   */
+  suspend fun resolveAmbiguity(itemId: String, candidate: TitleCandidate) =
+    withContext(Dispatchers.IO) {
+      val item = database.watchlistDao().getAll().firstOrNull { it.id == itemId }
+        ?: return@withContext
+      val imdbId = candidate.imdbId ?: lookupImdbId(candidate)
+      val resolved =
+        item.copy(
+          id = WatchlistItem.idFor(imdbId, item.title, candidate.year ?: item.year),
+          imdbId = imdbId,
+          tmdbId = candidate.tmdbId,
+          title = candidate.title,
+          year = candidate.year ?: item.year,
+          posterUrl = candidate.posterUrl ?: item.posterUrl,
+          titleType = WatchlistItem.TYPE_MOVIE,
+          needsReview = false,
+        )
+      database.watchlistDao().reIdentify(itemId, resolved)
+      database.titleCandidateDao().deleteFor(itemId)
+    }
+
+  /** Candidates from search carry no IMDb id; fetch it once the user has settled on one. */
+  private suspend fun lookupImdbId(candidate: TitleCandidate): String? =
+    runCatching {
+      lookup
+        .attachImdbId(
+          TitleLookup.Candidate(
+            tmdbId = candidate.tmdbId,
+            title = candidate.title,
+            originalTitle = null,
+            year = candidate.year,
+            type = TitleLookup.TYPE_MOVIE,
+            posterUrl = candidate.posterUrl,
+          )
+        )
+        .imdbId
+    }
+      .getOrNull()
+
+  /** The user says this entry is not a film; stop showing and matching it. */
+  suspend fun markAsSeries(itemId: String) =
+    withContext(Dispatchers.IO) {
+      val item = database.watchlistDao().getAll().firstOrNull { it.id == itemId }
+        ?: return@withContext
+      database.watchlistDao()
+        .insertAll(listOf(item.copy(titleType = WatchlistItem.TYPE_SERIES, needsReview = false)))
+      database.titleCandidateDao().deleteFor(itemId)
     }
 
   // --- The sync ---
@@ -124,8 +253,9 @@ private constructor(
       if (trakt.isConnected()) {
         runCatching { trakt.sync() }
           .onSuccess { items ->
-            database.watchlistDao().deleteBySource(WatchlistItem.SOURCE_TRAKT)
-            database.watchlistDao().insertAll(items)
+            // Films dropped from Trakt lose their Trakt claim here, and vanish entirely unless
+            // another list still has them.
+            database.watchlistDao().replaceSource(WatchlistItem.SOURCE_TRAKT, items)
             imported = items.size
             results += SourceResult(trakt.id, trakt.label, items.size)
           }
@@ -134,8 +264,16 @@ private constructor(
           }
       }
 
-      val currentWatchlist = database.watchlistDao().getAll()
-      if (currentWatchlist.isEmpty()) {
+      // 2. Put ids and a film/series verdict on anything that arrived as a bare title. Capped
+      // per run so a large first import spreads over a few syncs rather than one long stall.
+      runCatching { resolveTitles() }
+        .onFailure { Log.d(TAG, "Title resolution skipped: ${it.message}") }
+
+      // Series can never have a cinema screening, and an ambiguous title would match the wrong
+      // film, so neither is worth asking a cinema about.
+      val stored = database.watchlistDao().getAll()
+      val currentWatchlist = stored.filter { it.isMatchable }
+      if (stored.isEmpty()) {
         return@withContext SyncReport(
           timestamp = startedAt,
           sourceResults = results,
@@ -144,7 +282,25 @@ private constructor(
         )
       }
 
-      // 2. Poll each enabled cinema, grouped so one request serves a whole chain.
+      if (currentWatchlist.isEmpty()) {
+        val series = stored.count { !it.isFilm }
+        val review = stored.count { it.needsReview }
+        return@withContext SyncReport(
+          timestamp = startedAt,
+          watchlistSize = stored.size,
+          watchlistImported = imported,
+          sourceResults = results,
+          statusMessage =
+            when {
+              review > 0 -> "$review title(s) need you to pick the right film."
+              series > 0 -> "Your watchlist holds only TV series, which never play in cinemas."
+              else -> "No films to look for yet."
+            },
+          isSuccess = false,
+        )
+      }
+
+      // 3. Poll each enabled cinema, grouped so one request serves a whole chain.
       val enabled = database.cinemaDao().getEnabled()
       if (enabled.isEmpty()) {
         return@withContext SyncReport(
@@ -180,7 +336,7 @@ private constructor(
           }
       }
 
-      // 3. Match against the watchlist.
+      // 4. Match against the watchlist.
       val matched =
         raw.mapNotNull { screening ->
           val item =
@@ -210,7 +366,7 @@ private constructor(
         }
           .distinctBy { it.id }
 
-      // 4. Persist. Only prune venues we actually reached, so a failed source does not wipe the
+      // 5. Persist. Only prune venues we actually reached, so a failed source does not wipe the
       // screenings we already knew about there.
       database.screeningDao().deleteExpired()
       val reachedSourceIds = results.filter { it.isSuccess }.map { it.sourceId }.toSet()
@@ -225,7 +381,7 @@ private constructor(
           .updateStats(cinema.id, startedAt, matched.count { it.cinemaId == cinema.id })
       }
 
-      // 5. Notify about showings the user has not been told about yet.
+      // 6. Notify about showings the user has not been told about yet.
       val alreadyNotified = database.notificationDao().notifiedIds().toSet()
       val fresh = matched.filter { it.id !in alreadyNotified }
       var sent = 0
@@ -285,6 +441,12 @@ private constructor(
 
   companion object {
     private const val TAG = "KinoRepository"
+
+    /**
+     * Titles identified per sync. A 270-film Google TV import is spread over a few runs rather
+     * than firing hundreds of lookups at once.
+     */
+    private const val RESOLVE_PER_RUN = 120
 
     /** Ninety days: long past any screening we would re-announce. */
     private const val LOG_RETENTION_MILLIS = 90L * 24 * 60 * 60 * 1000

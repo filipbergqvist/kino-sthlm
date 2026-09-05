@@ -10,7 +10,11 @@ pull to refresh.
 ## What it does
 
 - **Syncs your watchlist** from Trakt (automatically, in the background) or from an IMDb /
-  Google TV CSV export.
+  Google TV CSV export. Films remember which lists they came from, so removing one upstream
+  removes it here — and a film on two lists survives being dropped from one.
+- **Identifies bare titles** via TMDB: which year, which of two same-named films, and whether it
+  is a TV series (Google TV exports mix those in; they are hidden, since they never play in
+  cinemas).
 - **Checks Stockholm cinemas** for anything on that list — 14 venues on the Filmstaden booking
   platform plus four independents, each one individually switchable.
 - **Notifies you** when a match appears, with the cinema, the time, and a link straight to the
@@ -56,6 +60,20 @@ the same thing.
 
 **You do not need a Google Play Console account.** That is only for publishing to the Play Store.
 
+### API keys
+
+Two optional keys, both free, both registered **once by whoever builds the app** — people
+installing your APK need nothing. Put them in `local.properties` (gitignored) or, for CI, in
+repository secrets.
+
+| Key | What it unlocks | Without it |
+| --- | --- | --- |
+| `TRAKT_CLIENT_ID` / `TRAKT_CLIENT_SECRET` | Automatic background watchlist sync | The Trakt option says it is not configured; CSV import still works |
+| `TMDB_API_KEY` | Identifying bare titles: years, IMDb ids, film-vs-series | Google TV titles stay unidentified, so series are not hidden and same-named films cannot be told apart |
+
+TMDB keys come from <https://www.themoviedb.org/settings/api> (pick "Developer", it is instant
+and free for non-commercial use).
+
 ### Connecting Trakt
 
 Trakt is the only source that can refresh on its own, and it needs a free app registration:
@@ -73,8 +91,7 @@ Trakt is the only source that can refresh on its own, and it needs a free app re
 4. Rebuild. In **Settings → Trakt → Connect**, the app shows an eight-character code; enter it at
    <https://trakt.tv/activate> once and it syncs from then on.
 
-Without these the app still works — the Trakt option just says it is not configured, and CSV
-import covers the rest.
+Each person using the app does step 4 with their own Trakt account. Steps 1–3 are yours alone.
 
 ### IMDb and Google TV
 
@@ -84,14 +101,26 @@ pick the CSV. There is also a best-effort reader for a *public* IMDb list, but I
 reshape it at any time — the CSV is the dependable route.
 
 Google TV goes through [Google Takeout](https://takeout.google.com) (`Saved → Watchlist.csv`).
-Be aware of what that export contains: `Title,Note,URL,Tags,Comment`, where the URL column is a
-placeholder for every row. **No release years and no film ids**, so Google TV titles are matched
-by name alone. Google disambiguates the odd remake in the title itself (`Ghostbusters (1984)`)
-and the importer lifts that out, but two films sharing a name and no year collapse into one
-entry. IMDb's export carries `tt` ids and years, so prefer it where you have both.
+That export is thin: `Title,Note,URL,Tags,Comment`, where the URL column is a placeholder on
+every row. **No release years, no film ids, and no way to tell a film from a TV series.**
 
-Takeout also mixes TV series into the same file. They are imported and simply never match a
-cinema screening — harmless, but it is why the watchlist count can look higher than expected.
+TMDB fills that in. After an import the app identifies each title, attaches the year and IMDb
+id, hides anything that turns out to be a series, and — when a name really is shared by several
+films — asks you which one you meant rather than guessing. Two rows with the same name are kept
+apart for exactly that reason, so an original and its remake do not silently become one entry.
+
+## How the watchlist behaves
+
+Each film records which lists put it there. That provenance is what makes removal work:
+
+- Remove a film **from Trakt** and it disappears here on the next sync — unless another
+  connected list still has it, in which case it stays.
+- Remove it **in the app** and it is hidden, even while a source still lists it. Deleting it
+  here cannot undo itself on the next sync, but the source is still the source of truth: clear
+  it upstream too and the entry is discarded for good.
+- **Add a film by hand** with an IMDb link. The id identifies it exactly, so there is no year to
+  type and no chance of getting the wrong film of two. Hand-added films survive every sync until
+  you remove them by hand.
 
 ## Adding a cinema
 
@@ -130,8 +159,8 @@ GitHub Release:
 git tag v1.0.0 && git push origin v1.0.0
 ```
 
-Add `TRAKT_CLIENT_ID` and `TRAKT_CLIENT_SECRET` as repository secrets to ship builds with Trakt
-enabled.
+Add `TRAKT_CLIENT_ID`, `TRAKT_CLIENT_SECRET` and `TMDB_API_KEY` as repository secrets so released
+builds ship with both integrations enabled.
 
 ## Stack
 

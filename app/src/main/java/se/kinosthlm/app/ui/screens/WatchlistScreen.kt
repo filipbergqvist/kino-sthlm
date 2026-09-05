@@ -8,19 +8,25 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,51 +38,197 @@ import se.kinosthlm.app.notification.NotificationHelper
 import se.kinosthlm.app.ui.viewmodel.UiState
 import se.kinosthlm.app.ui.viewmodel.WatchlistEntry
 
+/**
+ * The watchlist, mirrored from whatever the user already uses.
+ *
+ * Mostly a mirror of the lists the user already keeps elsewhere, so the widget at the top is
+ * about *syncing* rather than editing. Films can still be added and removed by hand, but each
+ * entry remembers which lists it came from: removing it upstream removes it here, and removing
+ * it here keeps it hidden even while a source still lists it.
+ */
 @Composable
 fun WatchlistScreen(
   uiState: UiState,
+  onSync: () -> Unit,
   onToggleShowingSoon: () -> Unit,
-  onRemove: (String) -> Unit,
   onOpenBooking: (String) -> Unit,
+  onOpenSources: () -> Unit,
+  onReview: () -> Unit,
   onAddFilm: () -> Unit,
+  onRemove: (String) -> Unit,
   modifier: Modifier = Modifier,
 ) {
-  Column(modifier.fillMaxWidth()) {
-    Row(
-      Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-      horizontalArrangement = Arrangement.spacedBy(8.dp),
-      verticalAlignment = Alignment.CenterVertically,
-    ) {
-      FilterChip(
-        selected = uiState.showingSoonOnly,
-        onClick = onToggleShowingSoon,
-        label = { Text("Showing soon") },
-        modifier = Modifier.testTag("filter_showing_soon"),
-      )
-      AssistChip(onClick = onAddFilm, label = { Text("Add film") })
+  LazyColumn(
+    modifier.fillMaxWidth(),
+    contentPadding = PaddingValues(16.dp),
+    verticalArrangement = Arrangement.spacedBy(8.dp),
+  ) {
+    item { SyncWidget(uiState, onSync, onOpenSources) }
+
+    if (uiState.needsReview.isNotEmpty()) {
+      item { ReviewBanner(count = uiState.needsReview.size, onReview = onReview) }
+    }
+
+    if (uiState.watchlist.isNotEmpty()) {
+      item {
+        Row(
+          Modifier.fillMaxWidth().padding(top = 4.dp),
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
+          verticalAlignment = Alignment.CenterVertically,
+        ) {
+          FilterChip(
+            selected = uiState.showingSoonOnly,
+            onClick = onToggleShowingSoon,
+            label = { Text("Showing soon") },
+            modifier = Modifier.testTag("filter_showing_soon"),
+          )
+          AssistChip(
+            onClick = onAddFilm,
+            label = { Text("Add") },
+            modifier = Modifier.testTag("add_film"),
+          )
+          if (uiState.seriesCount > 0) {
+            Text(
+              "${uiState.seriesCount} TV series hidden",
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          }
+        }
+      }
     }
 
     if (uiState.watchlist.isEmpty()) {
-      EmptyState(
-        title = if (uiState.showingSoonOnly) "Nothing scheduled yet" else "Your watchlist is empty",
-        body =
-          if (uiState.showingSoonOnly) {
-            "None of your films have a Stockholm screening in the window yet. " +
-              "You will get a notification the moment one is announced."
-          } else {
-            "Connect Trakt or import a CSV from the Settings tab to get started."
-          },
-      )
-      return@Column
+      item {
+        EmptyState(
+          title =
+            if (uiState.showingSoonOnly) "Nothing scheduled yet" else "No films synced yet",
+          body =
+            if (uiState.showingSoonOnly) {
+              "None of your films have a Stockholm screening in the window yet. " +
+                "You will get a notification the moment one is announced."
+            } else {
+              "Connect Trakt or import a watchlist export to get started."
+            },
+        )
+      }
     }
 
-    LazyColumn(
-      contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-      verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-      items(uiState.watchlist, key = { it.item.id }) { entry ->
-        WatchlistCard(entry = entry, onRemove = onRemove, onOpenBooking = onOpenBooking)
+    items(uiState.watchlist, key = { it.item.id }) { entry ->
+      WatchlistCard(entry = entry, onOpenBooking = onOpenBooking, onRemove = onRemove)
+    }
+  }
+}
+
+/**
+ * Sync status, at the top of the list where it belongs — how many films we are watching, when we
+ * last looked, whether anything broke, and a button to look again now.
+ */
+@Composable
+private fun SyncWidget(uiState: UiState, onSync: () -> Unit, onOpenSources: () -> Unit) {
+  Card(
+    Modifier.fillMaxWidth().testTag("sync_widget"),
+    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+  ) {
+    Column(Modifier.padding(16.dp)) {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+          Text(
+            "${uiState.watchlist.size} films watched",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+          )
+          Text(
+            when {
+              uiState.isResolving -> {
+                val (done, total) = uiState.resolveProgress ?: (0 to 0)
+                if (total > 0) "Identifying titles… $done of $total" else "Identifying titles…"
+              }
+              uiState.isSyncing -> "Checking cinemas…"
+              uiState.lastSyncAt > 0L ->
+                "Last synced ${NotificationHelper.formatTime(uiState.lastSyncAt)}"
+              else -> "Not synced yet"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+        if (uiState.isSyncing || uiState.isResolving) {
+          CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+        } else {
+          FilledTonalButton(onClick = onSync, modifier = Modifier.testTag("sync_now_widget")) {
+            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.size(6.dp))
+            Text("Sync")
+          }
+        }
       }
+
+      if (uiState.isResolving) {
+        val (done, total) = uiState.resolveProgress ?: (0 to 0)
+        Spacer(Modifier.height(8.dp))
+        if (total > 0) {
+          LinearProgressIndicator(
+            progress = { done.toFloat() / total },
+            modifier = Modifier.fillMaxWidth(),
+          )
+        } else {
+          LinearProgressIndicator(Modifier.fillMaxWidth())
+        }
+      }
+
+      if (uiState.lastSyncSummary.isNotBlank() && !uiState.isSyncing) {
+        Spacer(Modifier.height(8.dp))
+        Text(
+          uiState.lastSyncSummary,
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+
+      // Name what broke rather than leaving the user to wonder why nothing turned up.
+      if (uiState.failedSources.isNotEmpty()) {
+        Spacer(Modifier.height(8.dp))
+        for (failure in uiState.failedSources) {
+          Text(
+            "${failure.label} could not be reached",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+          )
+        }
+      }
+
+      if (uiState.watchlist.isEmpty() && uiState.needsReview.isEmpty()) {
+        Spacer(Modifier.height(4.dp))
+        TextButton(onClick = onOpenSources, modifier = Modifier.testTag("open_sources")) {
+          Text("Connect a watchlist")
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun ReviewBanner(count: Int, onReview: () -> Unit) {
+  Card(
+    Modifier.fillMaxWidth().testTag("review_banner"),
+    colors =
+      CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+  ) {
+    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+      Column(Modifier.weight(1f)) {
+        Text(
+          if (count == 1) "1 title needs a choice" else "$count titles need a choice",
+          style = MaterialTheme.typography.titleSmall,
+          color = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+        Text(
+          "Several films share these names. Pick the right one so we watch for the right film.",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+      }
+      TextButton(onClick = onReview, modifier = Modifier.testTag("open_review")) { Text("Review") }
     }
   }
 }
@@ -84,8 +236,8 @@ fun WatchlistScreen(
 @Composable
 private fun WatchlistCard(
   entry: WatchlistEntry,
-  onRemove: (String) -> Unit,
   onOpenBooking: (String) -> Unit,
+  onRemove: (String) -> Unit,
 ) {
   Card(
     Modifier.fillMaxWidth().testTag("watchlist_item_${entry.item.id}"),
@@ -100,7 +252,8 @@ private fun WatchlistCard(
             fontWeight = FontWeight.SemiBold,
           )
           Text(
-            listOfNotNull(entry.item.year?.toString(), sourceLabel(entry.item.source))
+            (listOfNotNull(entry.item.year?.toString()) + entry.sources.map(::sourceLabel))
+              .ifEmpty { listOf("Added by hand") }
               .joinToString(" · "),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -110,11 +263,12 @@ private fun WatchlistCard(
           onClick = { onRemove(entry.item.id) },
           modifier = Modifier.testTag("remove_${entry.item.id}"),
         ) {
-          Icon(Icons.Default.Delete, contentDescription = "Remove ${entry.item.title}")
+          Icon(Icons.Default.Close, contentDescription = "Remove ${entry.item.title}")
         }
       }
 
       if (entry.screenings.isEmpty()) {
+        Spacer(Modifier.height(4.dp))
         Text(
           "No Stockholm screenings found yet",
           style = MaterialTheme.typography.bodySmall,
@@ -132,7 +286,8 @@ private fun WatchlistCard(
           when_ = NotificationHelper.formatTime(screening.screeningTime),
           where = screening.cinemaName,
           detail =
-            listOfNotNull(screening.auditorium, screening.formatTag).joinToString(" · ")
+            listOfNotNull(screening.auditorium, screening.formatTag)
+              .joinToString(" · ")
               .ifBlank { null },
           onClick = { onOpenBooking(screening.bookingUrl) },
         )
@@ -154,5 +309,6 @@ private fun sourceLabel(source: String): String =
     WatchlistItem.SOURCE_TRAKT -> "Trakt"
     WatchlistItem.SOURCE_IMDB -> "IMDb"
     WatchlistItem.SOURCE_GOOGLE_TV -> "Google TV"
-    else -> "Added by hand"
+    WatchlistItem.SOURCE_MANUAL -> "Added by hand"
+    else -> source
   }

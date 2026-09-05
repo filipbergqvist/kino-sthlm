@@ -1,65 +1,45 @@
 {
- "total": 6,
+ "total": 4,
  "events": [
   {
-   "id": 149927,
-   "url": "https://tellusbio.nu/program/149927/",
-   "title": "Kortfilmskväll med Gunnar Lindholm &#038; Lazlo Schüszler",
+   "id": 100001,
+   "title": "Häxan med live-musik",
+   "url": "https://tellusbio.nu/program/haxan/",
+   "website": "https://nortic.se/ticket/event/100001",
+   "cost": "90kr",
    "start_date": "2026-09-05 18:00:00",
    "utc_start_date": "2026-09-05 16:00:00",
-   "timezone": "Europe/Stockholm",
-   "cost": "90kr",
-   "website": "https://nortic.se/ticket/event/86192"
+   "timezone": "Europe/Stockholm"
   },
   {
-   "id": 149880,
-   "url": "https://tellusbio.nu/program/paw-patrol-dinosauriefilmen/",
-   "title": "Paw Patrol: Dinosaurie-filmen",
+   "id": 100002,
+   "title": "Buster Keaton &#038; Harold Lloyd: dubbelprogram",
+   "url": "https://tellusbio.nu/program/keaton-lloyd/",
+   "website": "https://nortic.se/ticket/event/100002",
+   "cost": "70 kr",
    "start_date": "2026-09-06 15:00:00",
    "utc_start_date": "2026-09-06 13:00:00",
-   "timezone": "Europe/Stockholm",
-   "cost": "70 kr",
-   "website": "https://www.nortic.se/ticket/event/85773"
+   "timezone": "Europe/Stockholm"
   },
   {
-   "id": 149887,
-   "url": "https://tellusbio.nu/program/149887/2026-09-06/",
-   "title": "Blir du ledsen om jag dör",
-   "start_date": "2026-09-06 17:00:00",
-   "utc_start_date": "2026-09-06 15:00:00",
-   "timezone": "Europe/Stockholm",
-   "cost": "90 kr",
-   "website": "https://www.nortic.se/ticket/event/85780"
+   "id": 100003,
+   "title": "Nosferatu",
+   "url": "https://tellusbio.nu/program/nosferatu/",
+   "website": "https://nortic.se/ticket/event/100003",
+   "cost": "",
+   "start_date": "2026-09-11 20:00:00",
+   "utc_start_date": "2026-09-11 18:00:00",
+   "timezone": "Europe/Stockholm"
   },
   {
-   "id": 149883,
-   "url": "https://tellusbio.nu/program/the-invite/2026-09-06/",
-   "title": "The Invite",
-   "start_date": "2026-09-06 19:30:00",
-   "utc_start_date": "2026-09-06 17:30:00",
-   "timezone": "Europe/Stockholm",
-   "cost": "90kr",
-   "website": "https://www.nortic.se/ticket/event/85781"
-  },
-  {
-   "id": 149893,
-   "url": "https://tellusbio.nu/program/de-levande-doda-i-rojava/",
-   "title": "De levande döda i Rojava",
-   "start_date": "2026-09-07 19:00:00",
-   "utc_start_date": "2026-09-07 17:00:00",
-   "timezone": "Europe/Stockholm",
-   "cost": " kr90",
-   "website": "https://www.nortic.se/ticket/event/85783"
-  },
-  {
-   "id": 149889,
-   "url": "https://tellusbio.nu/program/149887/2026-09-09/",
-   "title": "Blir du ledsen om jag dör",
-   "start_date": "2026-09-09 19:30:00",
-   "utc_start_date": "2026-09-09 17:30:00",
-   "timezone": "Europe/Stockholm",
-   "cost": "90 kr",
-   "website": "https://www.nortic.se/ticket/event/85780"
+   "id": 100004,
+   "title": "Gösta Berlings saga",
+   "url": "https://tellusbio.nu/program/gosta-berlings-saga/",
+   "website": "",
+   "cost": "110kr",
+   "start_date": "2026-09-13 17:30:00",
+   "utc_start_date": "2026-09-13 15:30:00",
+   "timezone": "Europe/Stockholm"
   }
  ]
 }

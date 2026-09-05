@@ -138,7 +138,6 @@ class TraktProvider(
         imdbId = imdbId,
         tmdbId = ids?.optInt("tmdb")?.takeIf { it > 0 },
         traktId = ids?.optInt("trakt")?.takeIf { it > 0 },
-        source = WatchlistItem.SOURCE_TRAKT,
       )
     }.distinctBy { it.id }
   }

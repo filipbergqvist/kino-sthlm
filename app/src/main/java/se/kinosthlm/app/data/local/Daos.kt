@@ -4,11 +4,14 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
 import se.kinosthlm.app.data.model.Cinema
 import se.kinosthlm.app.data.model.NotificationLog
 import se.kinosthlm.app.data.model.Screening
+import se.kinosthlm.app.data.model.TitleCandidate
 import se.kinosthlm.app.data.model.WatchlistItem
+import se.kinosthlm.app.data.model.WatchlistSource
 
 @Dao
 interface WatchlistDao {
@@ -22,14 +25,141 @@ interface WatchlistDao {
 
   @Query("DELETE FROM watchlist_items WHERE id = :id") suspend fun deleteById(id: String)
 
+  @Query("SELECT * FROM watchlist_sources") fun observeSources(): Flow<List<WatchlistSource>>
+
+  @Query("SELECT * FROM watchlist_sources WHERE itemId = :itemId")
+  suspend fun sourcesFor(itemId: String): List<WatchlistSource>
+
+  @Insert(onConflict = OnConflictStrategy.REPLACE)
+  suspend fun insertSources(rows: List<WatchlistSource>)
+
+  @Query("DELETE FROM watchlist_sources WHERE sourceId = :sourceId")
+  suspend fun deleteSourceRows(sourceId: String)
+
+  @Query("DELETE FROM watchlist_sources WHERE itemId = :itemId")
+  suspend fun deleteSourceRowsFor(itemId: String)
+
+  /** A film no source lists any more is off everybody's watchlist, so it goes for good. */
+  @Query("DELETE FROM watchlist_items WHERE id NOT IN (SELECT itemId FROM watchlist_sources)")
+  suspend fun deleteOrphans()
+
   /**
-   * Replace everything from one provider, so titles the user removed upstream disappear here
-   * too. Manual additions and other providers are untouched.
+   * Make [items] the complete contents of [sourceId].
+   *
+   * Anything that source used to contribute and no longer does loses its claim; a film left
+   * with no claims at all is deleted. Films other sources still list survive untouched, which is
+   * the whole point — removing a title from IMDb should not take it out of your Trakt list.
+   *
+   * Existing rows are updated in place rather than replaced, so resolved IMDb ids, the
+   * film/series verdict and a manual suppression all survive a re-sync.
    */
-  @Query("DELETE FROM watchlist_items WHERE source = :source")
-  suspend fun deleteBySource(source: String)
+  @Transaction
+  suspend fun replaceSource(sourceId: String, items: List<WatchlistItem>) {
+    deleteSourceRows(sourceId)
+    val existing = getAll().associateBy { it.id }
+    val merged =
+      items.map { incoming ->
+        val current = existing[incoming.id] ?: return@map incoming
+        current.copy(
+          title = incoming.title,
+          year = incoming.year ?: current.year,
+          imdbId = incoming.imdbId ?: current.imdbId,
+          tmdbId = incoming.tmdbId ?: current.tmdbId,
+          traktId = incoming.traktId ?: current.traktId,
+          posterUrl = incoming.posterUrl ?: current.posterUrl,
+        )
+      }
+    insertAll(merged)
+    insertSources(items.map { WatchlistSource(itemId = it.id, sourceId = sourceId) })
+    deleteOrphans()
+  }
+
+  /**
+   * Re-key an entry once it is identified.
+   *
+   * A Google TV title starts life keyed on its name; resolution gives it an IMDb id, which is
+   * the identity Trakt and IMDb imports use. Moving it across means the same film from two lists
+   * becomes one row rather than two — but the id is the primary key, so it needs a real move:
+   * carry the provenance over, merge with any existing row, and drop the old one.
+   */
+  @Transaction
+  suspend fun reIdentify(oldId: String, updated: WatchlistItem) {
+    if (oldId == updated.id) {
+      insertAll(listOf(updated))
+      return
+    }
+    val existing = getAll().firstOrNull { it.id == updated.id }
+    // An entry already under the new id wins on user-set fields; suppression must not be undone
+    // just because another list also carries the film.
+    val merged = existing?.copy(
+      title = updated.title,
+      year = updated.year ?: existing.year,
+      imdbId = updated.imdbId ?: existing.imdbId,
+      tmdbId = updated.tmdbId ?: existing.tmdbId,
+      posterUrl = updated.posterUrl ?: existing.posterUrl,
+      titleType = updated.titleType,
+      needsReview = updated.needsReview,
+    ) ?: updated
+
+    insertAll(listOf(merged))
+    insertSources(sourcesFor(oldId).map { WatchlistSource(updated.id, it.sourceId, it.addedAt) })
+    deleteSourceRowsFor(oldId)
+    deleteById(oldId)
+  }
+
+  /**
+   * Add a film by hand. Manual provenance is only ever cleared by deleting it by hand, so it
+   * survives every sync.
+   */
+  @Transaction
+  suspend fun addManual(item: WatchlistItem) {
+    val existing = getAll().firstOrNull { it.id == item.id }
+    // Re-adding something previously deleted should bring it back, not stay hidden.
+    insertAll(listOf(existing?.copy(suppressed = false) ?: item))
+    insertSources(listOf(WatchlistSource(item.id, WatchlistItem.SOURCE_MANUAL)))
+  }
+
+  /**
+   * Remove a film the user no longer wants to see here.
+   *
+   * If a source still lists it, the row is kept and suppressed — otherwise the next sync would
+   * simply put it back. Once every source drops it, the row goes for good.
+   */
+  @Transaction
+  suspend fun removeByUser(itemId: String) {
+    deleteSourceRowsFor(itemId)
+    val item = getAll().firstOrNull { it.id == itemId } ?: return
+    insertAll(listOf(item.copy(suppressed = true)))
+  }
 
   @Query("DELETE FROM watchlist_items") suspend fun clear()
+
+  /** Entries still awaiting the user's choice between several same-named films. */
+  @Query("SELECT * FROM watchlist_items WHERE needsReview = 1 ORDER BY title ASC")
+  fun observeNeedingReview(): Flow<List<WatchlistItem>>
+
+  @Query("SELECT COUNT(*) FROM watchlist_items WHERE titleType = 'series'")
+  fun observeSeriesCount(): Flow<Int>
+}
+
+@Dao
+interface TitleCandidateDao {
+  @Query("SELECT * FROM title_candidates ORDER BY year DESC")
+  fun observeAll(): Flow<List<TitleCandidate>>
+
+  @Insert(onConflict = OnConflictStrategy.REPLACE)
+  suspend fun insertAll(candidates: List<TitleCandidate>)
+
+  @Query("DELETE FROM title_candidates WHERE watchlistItemId = :itemId")
+  suspend fun deleteFor(itemId: String)
+
+  /** Drop candidates whose entry is gone, so a re-import does not leave orphans behind. */
+  @Query(
+    "DELETE FROM title_candidates WHERE watchlistItemId NOT IN (SELECT id FROM watchlist_items)"
+  )
+  suspend fun deleteOrphans()
+
+  @Query("DELETE FROM title_candidates") suspend fun clear()
 }
 
 @Dao

@@ -39,6 +39,7 @@ fun SettingsScreen(
   onSetInterval: (Long) -> Unit,
   onSetNotifications: (Boolean) -> Unit,
   onSyncNow: () -> Unit,
+  onResolveTitles: () -> Unit,
   onTestNotification: () -> Unit,
   onOpenUrl: (String) -> Unit,
   modifier: Modifier = Modifier,
@@ -140,12 +141,26 @@ fun SettingsScreen(
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        OutlinedButton(
-          onClick = onSyncNow,
-          enabled = !uiState.isSyncing,
-          modifier = Modifier.padding(top = 8.dp).testTag("sync_now"),
+        Row(
+          Modifier.padding(top = 8.dp),
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-          Text(if (uiState.isSyncing) "Syncing…" else "Sync now")
+          OutlinedButton(
+            onClick = onSyncNow,
+            enabled = !uiState.isSyncing,
+            modifier = Modifier.testTag("sync_now"),
+          ) {
+            Text(if (uiState.isSyncing) "Syncing…" else "Sync now")
+          }
+          // Google TV titles arrive bare; this puts IMDb ids and years on them in one pass
+          // instead of the sync chipping away at them a hundred at a time.
+          OutlinedButton(
+            onClick = onResolveTitles,
+            enabled = !uiState.isResolving,
+            modifier = Modifier.testTag("resolve_titles"),
+          ) {
+            Text(if (uiState.isResolving) "Identifying…" else "Identify titles")
+          }
         }
       }
     }

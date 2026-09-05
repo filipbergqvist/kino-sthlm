@@ -16,7 +16,9 @@ import se.kinosthlm.app.data.model.Cinema
 import se.kinosthlm.app.data.model.Screening
 import se.kinosthlm.app.data.model.SourceResult
 import se.kinosthlm.app.data.model.SyncReport
+import se.kinosthlm.app.data.model.TitleCandidate
 import se.kinosthlm.app.data.model.WatchlistItem
+import se.kinosthlm.app.data.model.WatchlistSource
 import se.kinosthlm.app.data.prefs.SettingsStore
 import se.kinosthlm.app.data.repository.KinoRepository
 import se.kinosthlm.app.worker.SyncWorker
@@ -25,9 +27,17 @@ import se.kinosthlm.app.worker.SyncWorker
 data class WatchlistEntry(
   val item: WatchlistItem,
   val screenings: List<Screening> = emptyList(),
+  /** Which connected lists this film came from; empty means it was added by hand. */
+  val sources: List<String> = emptyList(),
 ) {
   val nextScreening: Screening? get() = screenings.minByOrNull { it.screeningTime }
 }
+
+/** One ambiguous title and the films it could be, for the review sheet. */
+data class ReviewEntry(
+  val item: WatchlistItem,
+  val candidates: List<TitleCandidate>,
+)
 
 /** State of the Trakt device-code flow, driven from Settings. */
 sealed interface TraktState {
@@ -54,6 +64,12 @@ data class UiState(
   val notificationsEnabled: Boolean = true,
   val cinemaFilter: String? = null,
   val showingSoonOnly: Boolean = false,
+  /** Ambiguous titles waiting for the user to pick the right film. */
+  val needsReview: List<ReviewEntry> = emptyList(),
+  /** TV series found in the watchlist; hidden from the list because they never play in cinemas. */
+  val seriesCount: Int = 0,
+  val isResolving: Boolean = false,
+  val resolveProgress: Pair<Int, Int>? = null,
   val traktState: TraktState = TraktState.Disconnected,
   val traktConfigured: Boolean = false,
   val message: String? = null,
@@ -72,6 +88,7 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
   private val showingSoonOnly = MutableStateFlow(false)
   private val traktState = MutableStateFlow<TraktState>(TraktState.Disconnected)
   private val message = MutableStateFlow<String?>(null)
+  private val resolveProgress = MutableStateFlow<Pair<Int, Int>?>(null)
 
   private var traktJob: Job? = null
 
@@ -81,10 +98,10 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
           repository.watchlist,
           repository.upcomingScreenings,
           repository.cinemas,
-          cinemaFilter,
-          showingSoonOnly,
-        ) { watchlist, screenings, cinemas, filter, soonOnly ->
-          Content(watchlist, screenings, cinemas, filter, soonOnly)
+          repository.watchlistSources,
+          combine(cinemaFilter, showingSoonOnly) { filter, soonOnly -> filter to soonOnly },
+        ) { watchlist, screenings, cinemas, sources, filters ->
+          Content(watchlist, screenings, cinemas, sources, filters.first, filters.second)
         },
         combine(
           settings.autoSyncEnabled,
@@ -95,14 +112,37 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
         ) { auto, interval, notifications, lastAt, summary ->
           Prefs(auto, interval, notifications, lastAt, summary)
         },
-        combine(isSyncing, lastReport, traktState, message) { syncing, report, trakt, msg ->
-          Transient(syncing, report, trakt, msg)
+        combine(isSyncing, lastReport, traktState, message, resolveProgress) {
+          syncing,
+          report,
+          trakt,
+          msg,
+          progress ->
+          Transient(syncing, report, trakt, msg, progress)
         },
-      ) { content, prefs, transient ->
+        combine(repository.needingReview, repository.reviewCandidates, repository.seriesCount) {
+          review,
+          candidates,
+          series ->
+          val byItem = candidates.groupBy { it.watchlistItemId }
+          Review(review.map { ReviewEntry(it, byItem[it.id].orEmpty()) }, series)
+        },
+      ) { content, prefs, transient, review ->
         val byMovie = content.screenings.groupBy { it.watchlistMovieId }
+        val sourcesByItem = content.sources.groupBy { it.itemId }
         val entries =
           content.watchlist
-            .map { WatchlistEntry(it, byMovie[it.id].orEmpty()) }
+            // Series never play in cinemas, ambiguous titles would match the wrong film, and
+            // suppressed ones the user deleted. All three are handled elsewhere rather than
+            // cluttering the list.
+            .filter { it.isMatchable }
+            .map {
+              WatchlistEntry(
+                item = it,
+                screenings = byMovie[it.id].orEmpty(),
+                sources = sourcesByItem[it.id].orEmpty().map { row -> row.sourceId },
+              )
+            }
             .let { if (content.soonOnly) it.filter { entry -> entry.nextScreening != null } else it }
 
         UiState(
@@ -123,6 +163,10 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
           showingSoonOnly = content.soonOnly,
           traktState = transient.trakt,
           traktConfigured = repository.trakt.isConfigured,
+          needsReview = review.entries,
+          seriesCount = review.seriesCount,
+          isResolving = transient.progress != null,
+          resolveProgress = transient.progress,
           message = transient.message,
         )
       }
@@ -246,17 +290,62 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
     }
   }
 
-  fun addManualFilm(title: String, year: Int?) {
-    if (title.isBlank()) return
+  /** Add a film by hand from an IMDb link, which identifies it exactly. */
+  fun addByImdbLink(input: String) {
+    if (input.isBlank()) return
     viewModelScope.launch {
-      repository.addManualItem(title, year)
-      message.value = "Added ${title.trim()}"
-      sync()
+      try {
+        val title = repository.addByImdbLink(input)
+        message.value = "Added $title"
+        sync()
+      } catch (error: Exception) {
+        message.value = error.message ?: "Could not add that film"
+      }
     }
   }
 
   fun removeFilm(id: String) {
-    viewModelScope.launch { repository.removeItem(id) }
+    viewModelScope.launch {
+      repository.removeItem(id)
+      message.value = "Removed. Delete it from the source list too, or it will return."
+    }
+  }
+
+  /** The user picked which film an ambiguous title refers to. */
+  fun chooseCandidate(itemId: String, candidate: TitleCandidate) {
+    viewModelScope.launch {
+      repository.resolveAmbiguity(itemId, candidate)
+      message.value = "Set to ${candidate.title}${candidate.year?.let { " ($it)" } ?: ""}"
+    }
+  }
+
+  /** The user says an entry is a TV series, so it should stop appearing. */
+  fun markAsSeries(itemId: String) {
+    viewModelScope.launch {
+      repository.markAsSeries(itemId)
+      message.value = "Hidden as a TV series"
+    }
+  }
+
+  /** Identify bare titles now, rather than waiting for the next sync to chip away at them. */
+  fun resolveTitlesNow() {
+    if (resolveProgress.value != null) return
+    viewModelScope.launch {
+      resolveProgress.value = 0 to 0
+      try {
+        val outcome =
+          repository.resolveTitles(limit = Int.MAX_VALUE) { done, total ->
+            resolveProgress.value = done to total
+          }
+        message.value =
+          "Identified ${outcome.identified}, ${outcome.series} series hidden, " +
+            "${outcome.ambiguous} need a choice"
+      } catch (error: Exception) {
+        message.value = "Could not identify titles: ${error.message}"
+      } finally {
+        resolveProgress.value = null
+      }
+    }
   }
 
   // --- Cinemas & UI ---
@@ -287,6 +376,7 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
     val watchlist: List<WatchlistItem>,
     val screenings: List<Screening>,
     val cinemas: List<Cinema>,
+    val sources: List<WatchlistSource>,
     val filter: String?,
     val soonOnly: Boolean,
   )
@@ -304,5 +394,8 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
     val report: SyncReport?,
     val trakt: TraktState,
     val message: String?,
+    val progress: Pair<Int, Int>?,
   )
+
+  private data class Review(val entries: List<ReviewEntry>, val seriesCount: Int)
 }
