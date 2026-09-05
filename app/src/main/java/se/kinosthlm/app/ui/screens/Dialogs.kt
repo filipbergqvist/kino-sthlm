@@ -27,6 +27,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import se.kinosthlm.app.data.model.TitleCandidate
+import se.kinosthlm.app.data.watchlist.TitleLookup
+import se.kinosthlm.app.ui.viewmodel.AddSearchState
 import se.kinosthlm.app.ui.viewmodel.ReviewEntry
 
 /**
@@ -179,16 +181,19 @@ fun ImdbListDialog(onDismiss: () -> Unit, onFetch: (String) -> Unit) {
 }
 
 /**
- * Add a film by hand from an IMDb link.
- *
- * A link rather than a typed title and year, because the id identifies the film exactly: no
- * guessing between two films sharing a name, no year to remember, and nothing to review
- * afterwards. Paste from the IMDb app's share sheet or the address bar.
+ * Add a film by hand: an IMDb or TMDB link resolves exactly, a typed title (optionally with a
+ * year, e.g. "Amadeus 1984") searches TMDB and offers up to three close matches to pick between —
+ * so there is never a guess about which of several same-named films was meant.
  */
 @Composable
-fun AddByImdbLinkDialog(onDismiss: () -> Unit, onAdd: (String) -> Unit) {
+fun AddFilmDialog(
+  searchState: AddSearchState,
+  onSearch: (String) -> Unit,
+  onAdd: (TitleLookup.Candidate) -> Unit,
+  onDismiss: () -> Unit,
+) {
   var input by remember { mutableStateOf("") }
-  val looksValid = Regex("""tt\d{5,}""").containsMatchIn(input)
+  var searched by remember { mutableStateOf(false) }
 
   AlertDialog(
     onDismissRequest = onDismiss,
@@ -197,40 +202,83 @@ fun AddByImdbLinkDialog(onDismiss: () -> Unit, onAdd: (String) -> Unit) {
       Column {
         OutlinedTextField(
           value = input,
-          onValueChange = { input = it },
-          label = { Text("IMDb link") },
-          placeholder = { Text("https://www.imdb.com/title/tt0013442/") },
+          onValueChange = {
+            input = it
+            searched = false
+          },
+          label = { Text("IMDb/TMDB link, or a title") },
+          placeholder = { Text("e.g. Amadeus 1984") },
           singleLine = true,
-          isError = input.isNotBlank() && !looksValid,
-          modifier = Modifier.fillMaxWidth().testTag("imdb_link_input"),
+          modifier = Modifier.fillMaxWidth().testTag("add_film_input"),
         )
         Text(
-          if (input.isNotBlank() && !looksValid) {
-            "That link has no title id in it. It should contain something like tt0013442."
-          } else {
-            "Find the film on IMDb and paste its link. We read the title and year from it, so " +
-              "there is nothing to type and no chance of picking the wrong film."
-          },
+          "Paste a link to identify the film exactly, or type a title — add a year if it's " +
+            "shared by more than one film.",
           style = MaterialTheme.typography.bodySmall,
-          color =
-            if (input.isNotBlank() && !looksValid) MaterialTheme.colorScheme.error
-            else MaterialTheme.colorScheme.onSurfaceVariant,
-          modifier = Modifier.padding(top = 8.dp),
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+          modifier = Modifier.padding(top = 8.dp, bottom = 8.dp),
         )
+        if (searchState.isSearching) {
+          Text(
+            "Searching…",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        } else if (searched && searchState.results.isEmpty()) {
+          Text(
+            "No films matched that.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        } else if (searchState.results.isNotEmpty()) {
+          LazyColumn(
+            Modifier.heightIn(max = 280.dp).testTag("add_results"),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+          ) {
+            items(searchState.results.size) { position ->
+              val candidate = searchState.results[position]
+              AddCandidateRow(candidate) {
+                onAdd(candidate)
+                onDismiss()
+              }
+            }
+          }
+        }
       }
     },
     confirmButton = {
       TextButton(
         onClick = {
-          onAdd(input.trim())
-          onDismiss()
+          searched = true
+          onSearch(input.trim())
         },
-        enabled = looksValid,
-        modifier = Modifier.testTag("confirm_add"),
+        enabled = input.isNotBlank() && !searchState.isSearching,
+        modifier = Modifier.testTag("search_add"),
       ) {
-        Text("Add")
+        Text("Search")
       }
     },
     dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
   )
+}
+
+@Composable
+private fun AddCandidateRow(candidate: TitleLookup.Candidate, onClick: () -> Unit) {
+  Card(
+    Modifier.fillMaxWidth().clickable(onClick = onClick).testTag("add_candidate_${candidate.tmdbId}"),
+    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+  ) {
+    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+      Column(Modifier.weight(1f)) {
+        Text(candidate.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+        candidate.year?.let {
+          Text(
+            it.toString(),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+      }
+    }
+  }
 }

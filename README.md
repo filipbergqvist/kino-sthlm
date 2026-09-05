@@ -121,9 +121,10 @@ Each film records which lists put it there. That provenance is what makes remova
 - Remove it **in the app** and it is hidden, even while a source still lists it. Deleting it
   here cannot undo itself on the next sync, but the source is still the source of truth: clear
   it upstream too and the entry is discarded for good.
-- **Add a film by hand** with an IMDb link. The id identifies it exactly, so there is no year to
-  type and no chance of getting the wrong film of two. Hand-added films survive every sync until
-  you remove them by hand.
+- **Add a film by hand**, either with an IMDb/TMDB link (identifies it exactly, no guessing) or
+  by typing a title — add a year if it is shared by more than one film — which searches TMDB and
+  offers up to three matches to pick between. Hand-added films survive every sync until you
+  remove them by hand.
 
 ## Adding a cinema
 

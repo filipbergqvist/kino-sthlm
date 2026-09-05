@@ -21,6 +21,7 @@ import se.kinosthlm.app.data.model.WatchlistItem
 import se.kinosthlm.app.data.model.WatchlistSource
 import se.kinosthlm.app.data.prefs.SettingsStore
 import se.kinosthlm.app.data.repository.KinoRepository
+import se.kinosthlm.app.data.watchlist.TitleLookup
 import se.kinosthlm.app.worker.SyncWorker
 
 /** A watchlisted film together with the showings we found for it. */
@@ -38,6 +39,12 @@ data class WatchlistEntry(
   /** Still matched and shown, but never pushes a notification. */
   val isMuted: Boolean get() = item.notificationsMuted
 }
+
+/** Results of a manual-add search, kept separate from [UiState] since it is dialog-local. */
+data class AddSearchState(
+  val results: List<TitleLookup.Candidate> = emptyList(),
+  val isSearching: Boolean = false,
+)
 
 /** One ambiguous title and the films it could be, for the review sheet. */
 data class ReviewEntry(
@@ -114,8 +121,15 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
   private val message = MutableStateFlow<String?>(null)
   private val resolveProgress = MutableStateFlow<Pair<Int, Int>?>(null)
   private val selectedIds = MutableStateFlow<Set<String>>(emptySet())
+  private val addSearchResults = MutableStateFlow<List<TitleLookup.Candidate>>(emptyList())
+  private val addSearching = MutableStateFlow(false)
+
+  val addSearchState: StateFlow<AddSearchState> =
+    combine(addSearchResults, addSearching) { results, searching -> AddSearchState(results, searching) }
+      .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AddSearchState())
 
   private var traktJob: Job? = null
+  private var addSearchJob: Job? = null
 
   val uiState: StateFlow<UiState> =
     combine(
@@ -345,18 +359,40 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
     }
   }
 
-  /** Add a film by hand from an IMDb link, which identifies it exactly. */
-  fun addByImdbLink(input: String) {
-    if (input.isBlank()) return
+  /** Search TMDB for the manual add dialog: an IMDb/TMDB link, or a typed title and year. */
+  fun searchToAdd(query: String) {
+    addSearchJob?.cancel()
+    if (query.isBlank()) {
+      addSearchResults.value = emptyList()
+      addSearching.value = false
+      return
+    }
+    addSearchJob =
+      viewModelScope.launch {
+        addSearching.value = true
+        addSearchResults.value = runCatching { repository.searchToAdd(query) }.getOrDefault(emptyList())
+        addSearching.value = false
+      }
+  }
+
+  /** The user picked one of [searchToAdd]'s results. */
+  fun addCandidate(candidate: TitleLookup.Candidate) {
     viewModelScope.launch {
       try {
-        val title = repository.addByImdbLink(input)
+        val title = repository.addCandidate(candidate)
         message.value = "Added $title"
+        clearAddSearch()
         sync()
       } catch (error: Exception) {
         message.value = error.message ?: "Could not add that film"
       }
     }
+  }
+
+  fun clearAddSearch() {
+    addSearchJob?.cancel()
+    addSearchResults.value = emptyList()
+    addSearching.value = false
   }
 
   fun removeFilm(id: String) {

@@ -50,7 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import se.kinosthlm.app.data.model.WatchlistItem
-import se.kinosthlm.app.ui.screens.AddByImdbLinkDialog
+import se.kinosthlm.app.ui.screens.AddFilmDialog
 import se.kinosthlm.app.ui.screens.CinemasScreen
 import se.kinosthlm.app.ui.screens.ImdbListDialog
 import se.kinosthlm.app.ui.screens.ReviewDialog
@@ -87,6 +87,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
   val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+  val addSearchState by viewModel.addSearchState.collectAsStateWithLifecycle()
   val context = LocalContext.current
 
   var tab by remember { mutableIntStateOf(startTab) }
@@ -264,9 +265,14 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
   }
 
   if (showAddDialog) {
-    AddByImdbLinkDialog(
-      onDismiss = { showAddDialog = false },
-      onAdd = { viewModel.addByImdbLink(it) },
+    AddFilmDialog(
+      searchState = addSearchState,
+      onSearch = { viewModel.searchToAdd(it) },
+      onAdd = { viewModel.addCandidate(it) },
+      onDismiss = {
+        showAddDialog = false
+        viewModel.clearAddSearch()
+      },
     )
   }
   if (showReviewDialog) {

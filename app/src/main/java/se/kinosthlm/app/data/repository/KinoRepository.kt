@@ -105,36 +105,52 @@ private constructor(
     }
 
   /**
-   * Add a film by hand from an IMDb link.
+   * Free-text search for the manual add flow.
    *
-   * Taking the link rather than a typed title and year means the entry arrives already
-   * identified — exact id, exact year — so it can never be the wrong film of two sharing a name,
-   * and it needs no review pass. Manual provenance is only cleared by deleting it by hand, so it
-   * survives every sync.
-   *
-   * Returns the film's title.
+   * An IMDb or TMDB link resolves to exactly the film it names — no ambiguity, so a one-item
+   * list. A typed title (optionally "Title 1999" or "Title (1999)") goes through TMDB search and
+   * comes back as up to three close matches, narrowed by year when one was given, for the user to
+   * pick between rather than guessing which of several same-named films they meant.
    */
-  suspend fun addByImdbLink(input: String): String =
+  suspend fun searchToAdd(input: String): List<TitleLookup.Candidate> =
     withContext(Dispatchers.IO) {
-      val imdbId =
-        TitleLookup.extractImdbId(input)
-          ?: error("That does not look like an IMDb link. Expected something containing tt…")
+      val trimmed = input.trim()
+      if (trimmed.isEmpty()) return@withContext emptyList()
 
-      val candidate =
-        lookup.lookupByImdbId(imdbId)
-          ?: error("IMDb has no title with the id $imdbId, or the lookup is unavailable.")
+      TitleLookup.extractImdbId(trimmed)?.let { imdbId ->
+        return@withContext listOfNotNull(lookup.lookupByImdbId(imdbId))
+      }
+      TitleLookup.extractTmdbId(trimmed)?.let { tmdbId ->
+        return@withContext listOfNotNull(lookup.fetchMovieDetails(tmdbId))
+      }
 
+      val yearMatch = Regex("""^(.*?)[\s,(]+(\d{4})\)?$""").find(trimmed)
+      val title = yearMatch?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() } ?: trimmed
+      val year = yearMatch?.groupValues?.get(2)?.toIntOrNull()
+
+      val films = runCatching { lookup.lookup(title) }.getOrNull()?.films ?: return@withContext emptyList()
+      val narrowed =
+        year
+          ?.let { y -> films.filter { it.year != null && kotlin.math.abs(it.year - y) <= 1 } }
+          ?.takeIf { it.isNotEmpty() }
+      (narrowed ?: films).take(3)
+    }
+
+  /** Add a film the user picked from [searchToAdd]'s results. Returns its title. */
+  suspend fun addCandidate(candidate: TitleLookup.Candidate): String =
+    withContext(Dispatchers.IO) {
       if (!candidate.isFilm) {
         error("\"${candidate.title}\" is a TV series, which never plays in cinemas.")
       }
+      val imdbId = candidate.imdbId ?: runCatching { lookup.attachImdbId(candidate) }.getOrNull()?.imdbId
 
       database.watchlistDao()
         .addManual(
           WatchlistItem(
-            id = WatchlistItem.idFor(candidate.tmdbId, candidate.imdbId, candidate.title, candidate.year),
+            id = WatchlistItem.idFor(candidate.tmdbId, imdbId, candidate.title, candidate.year),
             title = candidate.title,
             year = candidate.year,
-            imdbId = candidate.imdbId,
+            imdbId = imdbId,
             tmdbId = candidate.tmdbId,
             posterUrl = candidate.posterUrl,
             overview = candidate.overview,

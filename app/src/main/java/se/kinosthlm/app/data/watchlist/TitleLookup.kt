@@ -210,8 +210,13 @@ class TitleLookup(
     const val TYPE_TV = "tv"
 
     private val IMDB_ID = Regex("""tt\d{5,}""")
+    private val TMDB_URL_ID = Regex("""themoviedb\.org/movie/(\d+)""")
 
     /** Pull the title id out of anything from a full URL to a bare "tt0013442". */
     fun extractImdbId(input: String): String? = IMDB_ID.find(input.trim())?.value
+
+    /** Pull the numeric id out of a themoviedb.org film URL, e.g. ".../movie/603-the-matrix". */
+    fun extractTmdbId(input: String): Int? =
+      TMDB_URL_ID.find(input.trim())?.groupValues?.get(1)?.toIntOrNull()
   }
 }
