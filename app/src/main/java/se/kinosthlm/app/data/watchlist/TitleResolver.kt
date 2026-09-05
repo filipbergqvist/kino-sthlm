@@ -186,6 +186,41 @@ class TitleResolver(private val lookup: TitleLookup = TitleLookup()) {
   }
 
   /**
+   * Fetch a poster and synopsis for entries that already have a TMDB id but never went through a
+   * search or lookup to pick one up — in practice, Trakt imports, which arrive with a TMDB id
+   * straight from Trakt's own API.
+   *
+   * Deliberately capped and spaced the same as everything else here: TMDB's public API is not
+   * meant for bulk fetching, so a large Trakt watchlist gets its posters "over time", a handful
+   * per sync, rather than in one burst.
+   */
+  suspend fun backfillPosters(items: List<WatchlistItem>, limit: Int = Int.MAX_VALUE): List<Resolution> {
+    if (!lookup.isConfigured) return emptyList()
+
+    val pending = items.filter { it.tmdbId != null && it.posterUrl == null }.take(limit)
+    if (pending.isEmpty()) return emptyList()
+
+    val resolutions = mutableListOf<Resolution>()
+    for (item in pending) {
+      val details =
+        runCatching { lookup.fetchMovieDetails(item.tmdbId!!) }.getOrElse { error ->
+          Log.d(TAG, "Poster backfill failed for ${item.title}: ${error.message}")
+          null
+        } ?: continue
+
+      resolutions +=
+        Resolution(
+          item.copy(
+            posterUrl = details.posterUrl ?: item.posterUrl,
+            overview = item.overview ?: details.overview,
+          )
+        )
+      delay(REQUEST_SPACING_MILLIS)
+    }
+    return resolutions
+  }
+
+  /**
    * Entries worth looking up: no IMDb id yet and not yet classified. Trakt and IMDb imports
    * arrive with ids and skip this entirely.
    *

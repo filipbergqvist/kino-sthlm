@@ -143,6 +143,21 @@ class TitleLookup(
     null
   }
 
+  /**
+   * Fetch a film's poster and synopsis directly by TMDB id.
+   *
+   * Used to backfill entries that already have a TMDB id (Trakt hands one back with every
+   * import) but never went through a title search or lookup, so they never picked up a poster or
+   * overview. One request per film, same shape as everything else here.
+   */
+  suspend fun fetchMovieDetails(tmdbId: Int): Candidate? = withContext(Dispatchers.IO) {
+    if (!isConfigured) return@withContext null
+    runCatching {
+      val entry = JSONObject(Http.getString("$baseUrl/movie/$tmdbId?$auth"))
+      candidateOf(entry, forcedType = TYPE_MOVIE)
+    }.getOrNull()
+  }
+
   /** Fetch the IMDb id for a film, so entries from different providers share one identity. */
   suspend fun attachImdbId(candidate: Candidate): Candidate = withContext(Dispatchers.IO) {
     if (candidate.imdbId != null || !candidate.isFilm) return@withContext candidate

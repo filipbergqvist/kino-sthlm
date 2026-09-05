@@ -393,6 +393,91 @@ class TitleResolverTest {
     }
   }
 
+  // --- backfillPosters: filling in poster/overview for entries TMDB never gave one to ---
+
+  /** Shape of a TMDB /movie/{id} response, trimmed to the fields we read. */
+  private fun movieDetails(title: String, year: Int?, posterPath: String?, overview: String?) =
+    """{"id":19,"title":"$title","release_date":"${year ?: 1900}-01-01",""" +
+      """"poster_path":${posterPath?.let { "\"$it\"" } ?: "null"},"overview":"${overview.orEmpty()}"}"""
+
+  @Test
+  fun `fills in a poster and overview for an entry that already has a tmdb id`() = runTest {
+    val server = serverFinding { movieDetails("Metropolis", 1927, "/metropolis.jpg", "A city of the future.") }
+    try {
+      // What a Trakt import looks like: a TMDB id from the moment it lands, but no poster or
+      // overview, since Trakt's watchlist endpoint never returns either.
+      val fromTrakt = WatchlistItem(id = "tmdb:19", title = "Metropolis", tmdbId = 19)
+
+      val resolutions = TitleResolver(lookupAgainst(server)).backfillPosters(listOf(fromTrakt))
+
+      assertEquals(1, resolutions.size)
+      val resolved = resolutions.single().item
+      // The id never changes here — only cosmetic fields are added, so oldId equals the new id.
+      assertEquals("tmdb:19", resolved.id)
+      assertTrue(resolved.posterUrl?.contains("metropolis.jpg") == true)
+      assertEquals("A city of the future.", resolved.overview)
+    } finally {
+      server.shutdown()
+    }
+  }
+
+  @Test
+  fun `does not touch an entry that already has a poster`() = runTest {
+    val server = serverFinding { movieDetails("Metropolis", 1927, "/metropolis.jpg", "A city of the future.") }
+    try {
+      val alreadyHasOne =
+        WatchlistItem(id = "tmdb:19", title = "Metropolis", tmdbId = 19, posterUrl = "https://existing.test/p.jpg")
+
+      val resolutions = TitleResolver(lookupAgainst(server)).backfillPosters(listOf(alreadyHasOne))
+
+      assertTrue(resolutions.isEmpty())
+      assertEquals(0, server.requestCount)
+    } finally {
+      server.shutdown()
+    }
+  }
+
+  @Test
+  fun `does not touch an entry with no tmdb id to fetch details for`() = runTest {
+    val server = serverFinding { movieDetails("Metropolis", 1927, "/metropolis.jpg", "overview") }
+    try {
+      val noTmdbId = WatchlistItem(id = "imdb:tt0017136", title = "Metropolis", imdbId = "tt0017136")
+
+      val resolutions = TitleResolver(lookupAgainst(server)).backfillPosters(listOf(noTmdbId))
+
+      assertTrue(resolutions.isEmpty())
+      assertEquals(0, server.requestCount)
+    } finally {
+      server.shutdown()
+    }
+  }
+
+  @Test
+  fun `does nothing for poster backfill without a tmdb key`() = runTest {
+    val fromTrakt = WatchlistItem(id = "tmdb:19", title = "Metropolis", tmdbId = 19)
+
+    val resolutions =
+      TitleResolver(TitleLookup(apiKey = "", baseUrl = "https://unused.test"))
+        .backfillPosters(listOf(fromTrakt))
+
+    assertTrue(resolutions.isEmpty())
+  }
+
+  @Test
+  fun `respects the per-run limit for poster backfill`() = runTest {
+    val server = serverFinding { movieDetails("Metropolis", 1927, "/metropolis.jpg", "overview") }
+    try {
+      val items = List(5) { WatchlistItem(id = "tmdb:$it", title = "Metropolis", tmdbId = it) }
+
+      val resolutions = TitleResolver(lookupAgainst(server)).backfillPosters(items, limit = 2)
+
+      assertEquals(2, server.requestCount)
+      assertEquals(2, resolutions.size)
+    } finally {
+      server.shutdown()
+    }
+  }
+
   @Test
   fun `an unresolved entry is never matched against cinema listings`() {
     val pending = item("Nosferatu")

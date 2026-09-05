@@ -9,10 +9,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
@@ -29,9 +34,12 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import se.kinosthlm.app.notification.NotificationHelper
 import se.kinosthlm.app.ui.viewmodel.UiState
 import se.kinosthlm.app.ui.viewmodel.WatchlistEntry
@@ -56,65 +64,72 @@ fun WatchlistScreen(
   onOpenDetail: (WatchlistEntry) -> Unit,
   modifier: Modifier = Modifier,
 ) {
-  LazyColumn(
-    modifier.fillMaxWidth(),
-    contentPadding = PaddingValues(16.dp),
-    verticalArrangement = Arrangement.spacedBy(8.dp),
-  ) {
-    item { SyncWidget(uiState, onSync, onOpenSources) }
+  val listState = rememberLazyListState()
 
-    if (uiState.needsReview.isNotEmpty()) {
-      item { ReviewBanner(count = uiState.needsReview.size, onReview = onReview) }
-    }
+  Box(modifier.fillMaxWidth()) {
+    LazyColumn(
+      Modifier.fillMaxWidth(),
+      state = listState,
+      contentPadding = PaddingValues(16.dp),
+      verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+      item { SyncWidget(uiState, onSync, onOpenSources) }
 
-    if (uiState.watchlist.isNotEmpty()) {
-      item {
-        Row(
-          Modifier.fillMaxWidth().padding(top = 4.dp),
-          horizontalArrangement = Arrangement.spacedBy(8.dp),
-          verticalAlignment = Alignment.CenterVertically,
-        ) {
-          FilterChip(
-            selected = uiState.showingSoonOnly,
-            onClick = onToggleShowingSoon,
-            label = { Text("Showing soon") },
-            modifier = Modifier.testTag("filter_showing_soon"),
-          )
-          AssistChip(
-            onClick = onAddFilm,
-            label = { Text("Add") },
-            modifier = Modifier.testTag("add_film"),
-          )
-          if (uiState.seriesCount > 0) {
-            Text(
-              "${uiState.seriesCount} TV series hidden",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
+      if (uiState.needsReview.isNotEmpty()) {
+        item { ReviewBanner(count = uiState.needsReview.size, onReview = onReview) }
+      }
+
+      if (uiState.watchlist.isNotEmpty()) {
+        item {
+          Row(
+            Modifier.fillMaxWidth().padding(top = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            FilterChip(
+              selected = uiState.showingSoonOnly,
+              onClick = onToggleShowingSoon,
+              label = { Text("Showing soon") },
+              modifier = Modifier.testTag("filter_showing_soon"),
             )
+            AssistChip(
+              onClick = onAddFilm,
+              label = { Text("Add") },
+              modifier = Modifier.testTag("add_film"),
+            )
+            if (uiState.seriesCount > 0) {
+              Text(
+                "${uiState.seriesCount} TV series hidden",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+              )
+            }
           }
         }
       }
-    }
 
-    if (uiState.watchlist.isEmpty()) {
-      item {
-        EmptyState(
-          title =
-            if (uiState.showingSoonOnly) "Nothing scheduled yet" else "No films synced yet",
-          body =
-            if (uiState.showingSoonOnly) {
-              "None of your films have a Stockholm screening in the window yet. " +
-                "You will get a notification the moment one is announced."
-            } else {
-              "Connect Trakt or import a watchlist export to get started."
-            },
-        )
+      if (uiState.watchlist.isEmpty()) {
+        item {
+          EmptyState(
+            title =
+              if (uiState.showingSoonOnly) "Nothing scheduled yet" else "No films synced yet",
+            body =
+              if (uiState.showingSoonOnly) {
+                "None of your films have a Stockholm screening in the window yet. " +
+                  "You will get a notification the moment one is announced."
+              } else {
+                "Connect Trakt or import a watchlist export to get started."
+              },
+          )
+        }
+      }
+
+      items(uiState.watchlist, key = { it.item.id }) { entry ->
+        WatchlistCard(entry = entry, onOpenBooking = onOpenBooking, onClick = { onOpenDetail(entry) })
       }
     }
 
-    items(uiState.watchlist, key = { it.item.id }) { entry ->
-      WatchlistCard(entry = entry, onOpenBooking = onOpenBooking, onClick = { onOpenDetail(entry) })
-    }
+    VerticalScrollbar(listState, modifier = Modifier.padding(vertical = 16.dp, horizontal = 2.dp))
   }
 }
 
@@ -249,18 +264,47 @@ private fun WatchlistCard(
     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
   ) {
     Column(Modifier.padding(16.dp)) {
-      Text(
-        entry.item.title,
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.SemiBold,
-      )
-      Text(
-        (listOfNotNull(entry.item.year?.toString()) + entry.sources.map(::sourceLabel))
-          .ifEmpty { listOf("Added by hand") }
-          .joinToString(" · "),
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-      )
+      Row(verticalAlignment = Alignment.Top) {
+        // A small portrait poster once TMDB has resolved one; nothing forces the layout while
+        // it hasn't, which is deliberate — posters fill in gradually as the resolver catches up.
+        if (entry.item.posterUrl != null) {
+          AsyncImage(
+            model = entry.item.posterUrl,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier =
+              Modifier.size(width = 48.dp, height = 72.dp).clip(RoundedCornerShape(6.dp)),
+          )
+          Spacer(Modifier.width(12.dp))
+        }
+
+        Column(Modifier.weight(1f)) {
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+              entry.item.title,
+              style = MaterialTheme.typography.titleMedium,
+              fontWeight = FontWeight.SemiBold,
+              modifier = Modifier.weight(1f, fill = false),
+            )
+            if (entry.isPinned) {
+              Icon(
+                Icons.Default.PushPin,
+                contentDescription = "Pinned",
+                modifier = Modifier.padding(start = 6.dp).size(14.dp),
+                tint = MaterialTheme.colorScheme.primary,
+              )
+            }
+          }
+          watchlistDescriptor(entry.item, entry.sources)?.let { descriptor ->
+            Text(
+              descriptor,
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          }
+          SourceTags(entry.sources, modifier = Modifier.padding(top = 4.dp))
+        }
+      }
 
       if (entry.screenings.isEmpty()) {
         Spacer(Modifier.height(4.dp))

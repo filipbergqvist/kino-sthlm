@@ -39,6 +39,9 @@ interface WatchlistDao {
   @Query("DELETE FROM watchlist_sources WHERE itemId = :itemId")
   suspend fun deleteSourceRowsFor(itemId: String)
 
+  @Query("DELETE FROM watchlist_sources WHERE itemId = :itemId AND sourceId = :sourceId")
+  suspend fun deleteSourceRow(itemId: String, sourceId: String)
+
   /** A film no source lists any more is off everybody's watchlist, so it goes for good. */
   @Query("DELETE FROM watchlist_items WHERE id NOT IN (SELECT itemId FROM watchlist_sources)")
   suspend fun deleteOrphans()
@@ -133,6 +136,24 @@ interface WatchlistDao {
   }
 
   @Query("DELETE FROM watchlist_items") suspend fun clear()
+
+  /**
+   * Protect or unprotect an entry from automatic removal.
+   *
+   * Pinning just adds a [WatchlistItem.SOURCE_PINNED] provenance row — the same mechanism real
+   * sources use — so a pinned film survives even after every list that actually contributed it
+   * drops it. Unpinning removes only that row and re-runs orphan cleanup, so a film with no real
+   * source left is deleted the moment its pin is lifted rather than lingering until the next sync.
+   */
+  @Transaction
+  suspend fun setPinned(itemId: String, pinned: Boolean) {
+    if (pinned) {
+      insertSources(listOf(WatchlistSource(itemId, WatchlistItem.SOURCE_PINNED)))
+    } else {
+      deleteSourceRow(itemId, WatchlistItem.SOURCE_PINNED)
+      deleteOrphans()
+    }
+  }
 
   /** Entries still awaiting the user's choice between several same-named films. */
   @Query("SELECT * FROM watchlist_items WHERE needsReview = 1 ORDER BY title ASC")

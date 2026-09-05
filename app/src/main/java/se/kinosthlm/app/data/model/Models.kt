@@ -49,6 +49,14 @@ data class WatchlistItem(
     const val SOURCE_GOOGLE_TV = "google_tv"
     const val SOURCE_MANUAL = "manual"
 
+    /**
+     * Not a real list — a provenance row the user adds by hand to protect an entry from
+     * disappearing when its actual sources (Trakt, IMDb, Google TV) later drop it. Reuses the
+     * same [se.kinosthlm.app.data.model.WatchlistSource] mechanism that already keeps a film
+     * alive as long as *any* row claims it, rather than inventing a second concept.
+     */
+    const val SOURCE_PINNED = "pinned"
+
     const val TYPE_MOVIE = "movie"
     const val TYPE_SERIES = "series"
     const val TYPE_UNKNOWN = "unknown"

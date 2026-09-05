@@ -16,7 +16,19 @@ import se.kinosthlm.app.data.net.Http
  * exact start times, the film, the director and a per-showing booking link. That is a published,
  * machine-readable contract, so we read it instead of scraping the rendered markup.
  *
- * (Bio Rio also has an `api.biorio.se`, but it requires a key we are not entitled to.)
+ * **Known limitation: short lookahead.** This JSON-LD block always holds exactly the *soonest
+ * 20 screenings* — verified by requesting the page repeatedly and with `?limit=`/`?days=` query
+ * parameters, none of which changed the count or the date range returned. On a normal week that
+ * covers only 4–9 days ahead, well short of the ~21 day horizon every other source here can see.
+ * A film scheduled further out at Bio Rio will not appear, or notify, until it enters that
+ * rolling window — a few days before showtime rather than weeks before.
+ *
+ * The rest of Bio Rio's programme exists — the site itself is a Next.js app that fetches it
+ * client-side from `api.biorio.se` for infinite scroll — but every content endpoint on that API
+ * answers `401 {"error":"Missing API key"}` to a plain request, and the site's own `robots.txt`
+ * explicitly disallows `/api/`. Both are the operator's own access control, deliberately set;
+ * working around either is not something to do just because it is technically reachable. If Bio
+ * Rio ever publishes a public API or a wider SSR'd listing, switch to it here.
  */
 class BioRioSource(private val homeUrl: String = HOME) : CinemaSource {
 

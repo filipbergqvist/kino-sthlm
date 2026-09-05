@@ -110,7 +110,10 @@ abstract class AppDatabase : RoomDatabase() {
           address = "Hornstulls strand 3",
           websiteUrl = "https://www.biorio.se",
           sourceId = BioRioSource.SOURCE_ID,
-          specialty = "Independent Hornstull cinema; arthouse, docs and retrospectives",
+          specialty =
+            "Independent Hornstull cinema; arthouse, docs and retrospectives. " +
+              "Publishes only its soonest ~20 screenings, so films playing further out " +
+              "appear here closer to their date, not weeks ahead like other cinemas.",
         ),
         Cinema(
           id = TellusSource.SOURCE_ID,

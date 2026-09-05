@@ -157,6 +157,13 @@ private constructor(
       database.titleCandidateDao().deleteFor(id)
     }
 
+  /**
+   * Protect a film against disappearing when its real sources later drop it, or lift that
+   * protection. See [se.kinosthlm.app.data.local.WatchlistDao.setPinned].
+   */
+  suspend fun setPinned(itemId: String, pinned: Boolean) =
+    withContext(Dispatchers.IO) { database.watchlistDao().setPinned(itemId, pinned) }
+
   // --- Identifying titles ---
 
   /**
@@ -183,6 +190,17 @@ private constructor(
   private suspend fun backfillTmdbIds(limit: Int = RESOLVE_PER_RUN) {
     val before = database.watchlistDao().getAll()
     val resolutions = resolver.backfillTmdbIds(before, limit)
+    applyResolutions(resolutions, before)
+  }
+
+  /**
+   * Fetch a poster and synopsis for entries that already have a TMDB id but skipped every path
+   * that would have picked one up — Trakt imports, mainly. Capped low: this is cosmetic, not
+   * something worth spending TMDB's rate limit on ahead of matching or identification.
+   */
+  private suspend fun backfillPosters(limit: Int = POSTER_BACKFILL_PER_RUN) {
+    val before = database.watchlistDao().getAll()
+    val resolutions = resolver.backfillPosters(before, limit)
     applyResolutions(resolutions, before)
   }
 
@@ -292,6 +310,11 @@ private constructor(
       // source ends up on the same standardized key rather than just the Google TV path.
       runCatching { backfillTmdbIds() }
         .onFailure { Log.d(TAG, "TMDB backfill skipped: ${it.message}") }
+
+      // 2c. Fill in posters/synopses for entries that never went through a search — Trakt
+      // imports, which get a TMDB id but not the details that come with looking one up.
+      runCatching { backfillPosters() }
+        .onFailure { Log.d(TAG, "Poster backfill skipped: ${it.message}") }
 
       // Series can never have a cinema screening, and an ambiguous title would match the wrong
       // film, so neither is worth asking a cinema about.
@@ -484,6 +507,12 @@ private constructor(
      * than firing hundreds of lookups at once.
      */
     private const val RESOLVE_PER_RUN = 120
+
+    /**
+     * Posters are cosmetic, not something to burn TMDB's public rate limit on — a handful per
+     * sync means a large Trakt watchlist fills in "over time" rather than in one burst.
+     */
+    private const val POSTER_BACKFILL_PER_RUN = 20
 
     /** Ninety days: long past any screening we would re-announce. */
     private const val LOG_RETENTION_MILLIS = 90L * 24 * 60 * 60 * 1000

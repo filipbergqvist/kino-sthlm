@@ -176,6 +176,12 @@ class LiveSourceCanaryTest {
     // And an IMDb link must still resolve to exactly one film, for adding by hand.
     val byId = lookup.lookupByImdbId("https://www.imdb.com/title/tt0013442/")
     assertTrue("IMDb id lookup returned nothing", byId != null && byId.isFilm)
+
+    // Fetching a film straight by TMDB id — how a Trakt import backfills its poster — must
+    // still return one with a poster and a synopsis attached.
+    val details = lookup.fetchMovieDetails(byId!!.tmdbId)
+    assertTrue("Movie details lookup returned nothing", details != null)
+    assertTrue("Movie details had no poster", details?.posterUrl != null)
   }
 
   @Test

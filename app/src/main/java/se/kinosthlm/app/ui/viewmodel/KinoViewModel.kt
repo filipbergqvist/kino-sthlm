@@ -31,6 +31,9 @@ data class WatchlistEntry(
   val sources: List<String> = emptyList(),
 ) {
   val nextScreening: Screening? get() = screenings.minByOrNull { it.screeningTime }
+
+  /** Protected from disappearing if its real sources later drop it. */
+  val isPinned: Boolean get() = WatchlistItem.SOURCE_PINNED in sources
 }
 
 /** One ambiguous title and the films it could be, for the review sheet. */
@@ -308,6 +311,14 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
     viewModelScope.launch {
       repository.removeItem(id)
       message.value = "Removed. Delete it from the source list too, or it will return."
+    }
+  }
+
+  /** Protect a film from disappearing when its real sources later drop it, or lift that. */
+  fun togglePin(itemId: String, pinned: Boolean) {
+    viewModelScope.launch {
+      repository.setPinned(itemId, pinned)
+      message.value = if (pinned) "Pinned — it will stay even if its source removes it" else "Unpinned"
     }
   }
 

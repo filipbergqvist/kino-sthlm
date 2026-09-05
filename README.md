@@ -37,6 +37,13 @@ pull to refresh.
 No cinema here offers a public API contract, so the four independents are read from their public
 pages. When one redesigns, that adapter breaks — loudly. The app says which source failed and
 keeps the screenings it already knows about; it never fills the gap with invented data. A daily
+
+**Bio Rio has a shorter lookahead than the rest.** Its site only ever publishes its soonest ~20
+screenings — typically 4–9 days, well short of the 21-day horizon everywhere else. The full
+programme exists but is fetched client-side from a key-gated API that the site's own `robots.txt`
+disallows scripting against, so a film scheduled further out there will not appear or notify
+until it enters that rolling window. Not a bug to fix in this app — see the note in
+[`BioRioSource`](app/src/main/java/se/kinosthlm/app/data/source/BioRioSource.kt).
 [canary workflow](.github/workflows/canary.yml) checks every source and opens an issue when one
 stops responding.
 

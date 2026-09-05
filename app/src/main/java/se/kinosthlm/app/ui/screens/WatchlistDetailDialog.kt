@@ -9,16 +9,20 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -44,6 +48,7 @@ fun WatchlistDetailDialog(
   entry: WatchlistEntry,
   onOpenImdb: (String) -> Unit,
   onRemove: (String) -> Unit,
+  onTogglePin: (String, Boolean) -> Unit,
   onDismiss: () -> Unit,
 ) {
   val item = entry.item
@@ -66,18 +71,35 @@ fun WatchlistDetailDialog(
         }
 
         Column(Modifier.padding(20.dp)) {
-          Text(
-            item.title,
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-          )
-          Text(
-            (listOfNotNull(item.year?.toString()) + entry.sources.map(::sourceLabel))
-              .ifEmpty { listOf("Added by hand") }
-              .joinToString(" · "),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
+          Row(verticalAlignment = Alignment.Top) {
+            Text(
+              item.title,
+              style = MaterialTheme.typography.headlineSmall,
+              fontWeight = FontWeight.Bold,
+              modifier = Modifier.weight(1f, fill = false),
+            )
+            Spacer(Modifier.width(8.dp))
+            IconButton(
+              onClick = { onTogglePin(item.id, !entry.isPinned) },
+              modifier = Modifier.testTag("toggle_pin_${item.id}"),
+            ) {
+              Icon(
+                if (entry.isPinned) Icons.Default.PushPin else Icons.Outlined.PushPin,
+                contentDescription = if (entry.isPinned) "Unpin" else "Pin so it stays even if removed upstream",
+                tint =
+                  if (entry.isPinned) MaterialTheme.colorScheme.primary
+                  else MaterialTheme.colorScheme.onSurfaceVariant,
+              )
+            }
+          }
+          watchlistDescriptor(item, entry.sources)?.let { descriptor ->
+            Text(
+              descriptor,
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          }
+          SourceTags(entry.sources, modifier = Modifier.padding(top = 6.dp))
 
           Spacer(Modifier.height(12.dp))
           Text(
@@ -96,7 +118,7 @@ fun WatchlistDetailDialog(
                 modifier = Modifier.testTag("open_imdb"),
               ) {
                 Icon(
-                  Icons.Default.OpenInNew,
+                  Icons.AutoMirrored.Default.OpenInNew,
                   contentDescription = null,
                   modifier = Modifier.size(18.dp),
                 )
