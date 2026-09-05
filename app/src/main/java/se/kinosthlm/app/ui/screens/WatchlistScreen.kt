@@ -9,10 +9,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
@@ -22,7 +22,6 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -33,7 +32,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import se.kinosthlm.app.data.model.WatchlistItem
 import se.kinosthlm.app.notification.NotificationHelper
 import se.kinosthlm.app.ui.viewmodel.UiState
 import se.kinosthlm.app.ui.viewmodel.WatchlistEntry
@@ -55,7 +53,7 @@ fun WatchlistScreen(
   onOpenSources: () -> Unit,
   onReview: () -> Unit,
   onAddFilm: () -> Unit,
-  onRemove: (String) -> Unit,
+  onOpenDetail: (WatchlistEntry) -> Unit,
   modifier: Modifier = Modifier,
 ) {
   LazyColumn(
@@ -115,7 +113,7 @@ fun WatchlistScreen(
     }
 
     items(uiState.watchlist, key = { it.item.id }) { entry ->
-      WatchlistCard(entry = entry, onOpenBooking = onOpenBooking, onRemove = onRemove)
+      WatchlistCard(entry = entry, onOpenBooking = onOpenBooking, onClick = { onOpenDetail(entry) })
     }
   }
 }
@@ -233,39 +231,36 @@ private fun ReviewBanner(count: Int, onReview: () -> Unit) {
   }
 }
 
+/**
+ * Tapping the card opens the detail popup — poster, synopsis, IMDb link, sources, and the one
+ * place removal lives (see [se.kinosthlm.app.ui.screens.WatchlistDetailDialog]) — rather than an
+ * inline delete icon, so removing a film is a deliberate second step, not a stray tap in a list.
+ */
 @Composable
 private fun WatchlistCard(
   entry: WatchlistEntry,
   onOpenBooking: (String) -> Unit,
-  onRemove: (String) -> Unit,
+  onClick: () -> Unit,
 ) {
   Card(
-    Modifier.fillMaxWidth().testTag("watchlist_item_${entry.item.id}"),
+    Modifier.fillMaxWidth()
+      .clickable(onClick = onClick)
+      .testTag("watchlist_item_${entry.item.id}"),
     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
   ) {
     Column(Modifier.padding(16.dp)) {
-      Row(verticalAlignment = Alignment.Top) {
-        Column(Modifier.weight(1f)) {
-          Text(
-            entry.item.title,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-          )
-          Text(
-            (listOfNotNull(entry.item.year?.toString()) + entry.sources.map(::sourceLabel))
-              .ifEmpty { listOf("Added by hand") }
-              .joinToString(" · "),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-        }
-        IconButton(
-          onClick = { onRemove(entry.item.id) },
-          modifier = Modifier.testTag("remove_${entry.item.id}"),
-        ) {
-          Icon(Icons.Default.Close, contentDescription = "Remove ${entry.item.title}")
-        }
-      }
+      Text(
+        entry.item.title,
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.SemiBold,
+      )
+      Text(
+        (listOfNotNull(entry.item.year?.toString()) + entry.sources.map(::sourceLabel))
+          .ifEmpty { listOf("Added by hand") }
+          .joinToString(" · "),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
 
       if (entry.screenings.isEmpty()) {
         Spacer(Modifier.height(4.dp))
@@ -303,12 +298,3 @@ private fun WatchlistCard(
     }
   }
 }
-
-private fun sourceLabel(source: String): String =
-  when (source) {
-    WatchlistItem.SOURCE_TRAKT -> "Trakt"
-    WatchlistItem.SOURCE_IMDB -> "IMDb"
-    WatchlistItem.SOURCE_GOOGLE_TV -> "Google TV"
-    WatchlistItem.SOURCE_MANUAL -> "Added by hand"
-    else -> source
-  }

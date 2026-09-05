@@ -17,6 +17,9 @@ pull to refresh.
   cinemas).
 - **Checks Stockholm cinemas** for anything on that list — 14 venues on the Filmstaden booking
   platform plus four independents, each one individually switchable.
+- **Shows you the film** — tap a watchlist entry for its poster, synopsis, an IMDb link and which
+  lists it came from. Removing it lives here too, as a deliberate second step rather than a
+  stray tap in the list.
 - **Notifies you** when a match appears, with the cinema, the time, and a link straight to the
   ticket page. Only for showings you have not already been told about.
 

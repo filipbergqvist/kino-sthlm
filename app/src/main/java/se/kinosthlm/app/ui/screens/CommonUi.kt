@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import se.kinosthlm.app.data.model.WatchlistItem
 
 /** Shown wherever a list has nothing in it, so the screen explains itself rather than sitting blank. */
 @Composable
@@ -50,3 +51,13 @@ fun ScreeningRow(when_: String, where: String, detail: String?, onClick: () -> U
     TextButton(onClick = onClick) { Text("Tickets") }
   }
 }
+
+/** Human-readable label for a [WatchlistItem] provenance source id. */
+fun sourceLabel(source: String): String =
+  when (source) {
+    WatchlistItem.SOURCE_TRAKT -> "Trakt"
+    WatchlistItem.SOURCE_IMDB -> "IMDb"
+    WatchlistItem.SOURCE_GOOGLE_TV -> "Google TV"
+    WatchlistItem.SOURCE_MANUAL -> "Added by hand"
+    else -> source
+  }

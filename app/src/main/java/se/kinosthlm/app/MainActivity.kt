@@ -56,9 +56,11 @@ import se.kinosthlm.app.ui.screens.ImdbListDialog
 import se.kinosthlm.app.ui.screens.ReviewDialog
 import se.kinosthlm.app.ui.screens.ScheduleScreen
 import se.kinosthlm.app.ui.screens.SettingsScreen
+import se.kinosthlm.app.ui.screens.WatchlistDetailDialog
 import se.kinosthlm.app.ui.screens.WatchlistScreen
 import se.kinosthlm.app.ui.theme.KinoSthlmTheme
 import se.kinosthlm.app.ui.viewmodel.KinoViewModel
+import se.kinosthlm.app.ui.viewmodel.WatchlistEntry
 
 class MainActivity : ComponentActivity() {
 
@@ -91,6 +93,10 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
   var showImdbListDialog by remember { mutableStateOf(false) }
   var showReviewDialog by remember { mutableStateOf(false) }
   var showAddDialog by remember { mutableStateOf(false) }
+  // The id rather than a snapshot, so the popup reflects screenings arriving while it is open
+  // instead of freezing the moment it was tapped.
+  var detailEntryId by remember { mutableStateOf<String?>(null) }
+  val detailEntry: WatchlistEntry? = uiState.watchlist.firstOrNull { it.item.id == detailEntryId }
   val snackbar = remember { SnackbarHostState() }
 
   /**
@@ -209,7 +215,7 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
             onOpenSources = { tab = 3 },
             onReview = { showReviewDialog = true },
             onAddFilm = { showAddDialog = true },
-            onRemove = { viewModel.removeFilm(it) },
+            onOpenDetail = { detailEntryId = it.item.id },
           )
         1 ->
           ScheduleScreen(
@@ -268,6 +274,14 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
     ImdbListDialog(
       onDismiss = { showImdbListDialog = false },
       onFetch = { viewModel.importImdbList(it) },
+    )
+  }
+  detailEntry?.let { entry ->
+    WatchlistDetailDialog(
+      entry = entry,
+      onOpenImdb = openUrl,
+      onRemove = { viewModel.removeFilm(it) },
+      onDismiss = { detailEntryId = null },
     )
   }
 }

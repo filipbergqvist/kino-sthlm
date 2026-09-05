@@ -49,6 +49,8 @@ class TitleLookup(
     val year: Int?,
     val type: String,
     val posterUrl: String?,
+    /** Short synopsis, straight from TMDB — no extra request, every response carries it. */
+    val overview: String? = null,
     /** Filled in lazily by [attachImdbId]; TMDB's search results do not carry it. */
     val imdbId: String? = null,
   ) {
@@ -177,6 +179,7 @@ class TitleLookup(
       posterUrl =
         entry.optString("poster_path").takeIf { it.isNotBlank() && it != "null" }
           ?.let { "$IMAGE_BASE$it" },
+      overview = entry.optString("overview").takeIf { it.isNotBlank() },
     )
   }
 

@@ -137,6 +137,7 @@ private constructor(
             imdbId = candidate.imdbId,
             tmdbId = candidate.tmdbId,
             posterUrl = candidate.posterUrl,
+            overview = candidate.overview,
             titleType = WatchlistItem.TYPE_MOVIE,
           )
         )

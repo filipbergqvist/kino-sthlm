@@ -105,6 +105,7 @@ class TitleResolver(private val lookup: TitleLookup = TitleLookup()) {
                   tmdbId = full.tmdbId,
                   year = year,
                   posterUrl = item.posterUrl ?: full.posterUrl,
+                  overview = item.overview ?: full.overview,
                   titleType = WatchlistItem.TYPE_MOVIE,
                   needsReview = false,
                 ),
@@ -175,6 +176,7 @@ class TitleResolver(private val lookup: TitleLookup = TitleLookup()) {
             id = WatchlistItem.idFor(candidate.tmdbId, item.imdbId, item.title, item.year),
             tmdbId = candidate.tmdbId,
             posterUrl = item.posterUrl ?: candidate.posterUrl,
+            overview = item.overview ?: candidate.overview,
           ),
           oldId = item.id,
         )
