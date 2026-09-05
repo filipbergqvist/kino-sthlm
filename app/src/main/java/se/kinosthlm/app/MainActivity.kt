@@ -218,6 +218,11 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
             onOpenDetail = { detailEntryId = it.item.id },
             onQueryChange = { viewModel.setWatchlistQuery(it) },
             onCycleSort = { viewModel.cycleWatchlistSort() },
+            onStartSelecting = { viewModel.startSelecting(it) },
+            onToggleSelected = { viewModel.toggleSelected(it) },
+            onClearSelection = { viewModel.clearSelection() },
+            onRemoveSelected = { viewModel.removeSelected() },
+            onMuteSelected = { viewModel.muteSelected(it) },
           )
         1 ->
           ScheduleScreen(

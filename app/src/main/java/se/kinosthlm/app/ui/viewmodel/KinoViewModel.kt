@@ -91,8 +91,11 @@ data class UiState(
   val traktState: TraktState = TraktState.Disconnected,
   val traktConfigured: Boolean = false,
   val message: String? = null,
+  /** Films selected for a bulk action, entered with a long press. Empty means not selecting. */
+  val selectedIds: Set<String> = emptySet(),
 ) {
   val failedSources: List<SourceResult> get() = lastReport?.failedSources.orEmpty()
+  val isSelecting: Boolean get() = selectedIds.isNotEmpty()
 }
 
 class KinoViewModel(application: Application) : AndroidViewModel(application) {
@@ -110,6 +113,7 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
   private val traktState = MutableStateFlow<TraktState>(TraktState.Disconnected)
   private val message = MutableStateFlow<String?>(null)
   private val resolveProgress = MutableStateFlow<Pair<Int, Int>?>(null)
+  private val selectedIds = MutableStateFlow<Set<String>>(emptySet())
 
   private var traktJob: Job? = null
 
@@ -140,13 +144,15 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
           Prefs(auto, interval, notifications, lastAt, summary)
         },
         combine(
-          combine(isSyncing, syncStep) { syncing, step -> syncing to step },
+          combine(isSyncing, syncStep, selectedIds) { syncing, step, selected ->
+            Triple(syncing, step, selected)
+          },
           lastReport,
           traktState,
           message,
           resolveProgress,
         ) { sync, report, trakt, msg, progress ->
-          Transient(sync.first, sync.second, report, trakt, msg, progress)
+          Transient(sync.first, sync.second, sync.third, report, trakt, msg, progress)
         },
         combine(repository.needingReview, repository.reviewCandidates, repository.seriesCount) {
           review,
@@ -215,6 +221,7 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
           isResolving = transient.progress != null,
           resolveProgress = transient.progress,
           message = transient.message,
+          selectedIds = transient.selected,
         )
       }
       .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UiState())
@@ -391,6 +398,43 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
     }
   }
 
+  // --- Multi-selection ---
+
+  /** Long-pressing a card starts selecting with just that film checked. */
+  fun startSelecting(itemId: String) {
+    selectedIds.value = setOf(itemId)
+  }
+
+  fun toggleSelected(itemId: String) {
+    selectedIds.value =
+      if (itemId in selectedIds.value) selectedIds.value - itemId else selectedIds.value + itemId
+  }
+
+  fun clearSelection() {
+    selectedIds.value = emptySet()
+  }
+
+  fun removeSelected() {
+    val ids = selectedIds.value
+    if (ids.isEmpty()) return
+    viewModelScope.launch {
+      for (id in ids) repository.removeItem(id)
+      message.value = "Removed ${ids.size} film(s). Delete them from the source list too, or they will return."
+      selectedIds.value = emptySet()
+    }
+  }
+
+  /** Sets an explicit mute state on every selected film, overriding whatever each already had. */
+  fun muteSelected(muted: Boolean) {
+    val ids = selectedIds.value
+    if (ids.isEmpty()) return
+    viewModelScope.launch {
+      for (id in ids) repository.setNotificationsMuted(id, muted)
+      message.value = "${if (muted) "Muted" else "Unmuted"} ${ids.size} film(s)"
+      selectedIds.value = emptySet()
+    }
+  }
+
   /** Identify bare titles now, rather than waiting for the next sync to chip away at them. */
   fun resolveTitlesNow() {
     if (resolveProgress.value != null) return
@@ -476,6 +520,7 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
   private data class Transient(
     val syncing: Boolean,
     val step: String?,
+    val selected: Set<String>,
     val report: SyncReport?,
     val trakt: TraktState,
     val message: String?,

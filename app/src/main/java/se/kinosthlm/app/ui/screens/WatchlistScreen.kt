@@ -10,7 +10,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -23,8 +24,10 @@ import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
@@ -33,6 +36,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -78,9 +82,27 @@ fun WatchlistScreen(
   onOpenDetail: (WatchlistEntry) -> Unit,
   onQueryChange: (String) -> Unit,
   onCycleSort: () -> Unit,
+  onStartSelecting: (String) -> Unit,
+  onToggleSelected: (String) -> Unit,
+  onClearSelection: () -> Unit,
+  onRemoveSelected: () -> Unit,
+  onMuteSelected: (Boolean) -> Unit,
   modifier: Modifier = Modifier,
 ) {
   val listState = rememberLazyListState()
+
+  @Composable
+  fun renderCard(entry: WatchlistEntry) {
+    WatchlistCard(
+      entry = entry,
+      onOpenBooking = onOpenBooking,
+      onClick = { onOpenDetail(entry) },
+      isSelectionMode = uiState.isSelecting,
+      isSelected = entry.item.id in uiState.selectedIds,
+      onLongPress = { onStartSelecting(entry.item.id) },
+      onToggleSelect = { onToggleSelected(entry.item.id) },
+    )
+  }
 
   Box(modifier.fillMaxWidth()) {
     LazyColumn(
@@ -89,7 +111,19 @@ fun WatchlistScreen(
       contentPadding = PaddingValues(16.dp),
       verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-      item { SyncWidget(uiState, onSync, onOpenSources) }
+      if (uiState.isSelecting) {
+        item {
+          SelectionBar(
+            count = uiState.selectedIds.size,
+            onCancel = onClearSelection,
+            onRemove = onRemoveSelected,
+            onMute = { onMuteSelected(true) },
+            onUnmute = { onMuteSelected(false) },
+          )
+        }
+      } else {
+        item { SyncWidget(uiState, onSync, onOpenSources) }
+      }
 
       if (uiState.needsReview.isNotEmpty()) {
         item { ReviewBanner(count = uiState.needsReview.size, onReview = onReview) }
@@ -184,18 +218,14 @@ fun WatchlistScreen(
               verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
               for (entry in showingNow) {
-                WatchlistCard(entry = entry, onOpenBooking = onOpenBooking, onClick = { onOpenDetail(entry) })
+                renderCard(entry)
               }
             }
           }
         }
-        items(rest, key = { it.item.id }) { entry ->
-          WatchlistCard(entry = entry, onOpenBooking = onOpenBooking, onClick = { onOpenDetail(entry) })
-        }
+        items(rest, key = { it.item.id }) { entry -> renderCard(entry) }
       } else {
-        items(uiState.watchlist, key = { it.item.id }) { entry ->
-          WatchlistCard(entry = entry, onOpenBooking = onOpenBooking, onClick = { onOpenDetail(entry) })
-        }
+        items(uiState.watchlist, key = { it.item.id }) { entry -> renderCard(entry) }
       }
     }
 
@@ -291,6 +321,55 @@ private fun SyncWidget(uiState: UiState, onSync: () -> Unit, onOpenSources: () -
   }
 }
 
+/**
+ * Replaces the sync widget while films are selected — a Gmail-style contextual bar for bulk
+ * actions. Mute/unmute set an explicit state on every selected film rather than toggling each
+ * one's own, since a mixed selection has no single "current" state to flip.
+ */
+@Composable
+private fun SelectionBar(
+  count: Int,
+  onCancel: () -> Unit,
+  onRemove: () -> Unit,
+  onMute: () -> Unit,
+  onUnmute: () -> Unit,
+) {
+  Card(
+    Modifier.fillMaxWidth().testTag("selection_bar"),
+    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+  ) {
+    Column(Modifier.padding(16.dp)) {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+          "$count selected",
+          style = MaterialTheme.typography.titleMedium,
+          fontWeight = FontWeight.SemiBold,
+          modifier = Modifier.weight(1f),
+          color = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+        TextButton(onClick = onCancel, modifier = Modifier.testTag("cancel_selection")) {
+          Text("Cancel")
+        }
+      }
+      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick = onMute, modifier = Modifier.testTag("mute_selected")) {
+          Text("Mute")
+        }
+        OutlinedButton(onClick = onUnmute, modifier = Modifier.testTag("unmute_selected")) {
+          Text("Unmute")
+        }
+        OutlinedButton(
+          onClick = onRemove,
+          colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+          modifier = Modifier.testTag("remove_selected"),
+        ) {
+          Text("Remove")
+        }
+      }
+    }
+  }
+}
+
 @Composable
 private fun ReviewBanner(count: Int, onReview: () -> Unit) {
   Card(
@@ -322,18 +401,45 @@ private fun ReviewBanner(count: Int, onReview: () -> Unit) {
  * inline delete icon, so removing a film is a deliberate second step, not a stray tap in a list.
  */
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 private fun WatchlistCard(
   entry: WatchlistEntry,
   onOpenBooking: (String) -> Unit,
   onClick: () -> Unit,
+  isSelectionMode: Boolean = false,
+  isSelected: Boolean = false,
+  onLongPress: () -> Unit = {},
+  onToggleSelect: () -> Unit = {},
 ) {
   Card(
     Modifier.fillMaxWidth()
-      .clickable(onClick = onClick)
+      .combinedClickable(
+        onClick = if (isSelectionMode) onToggleSelect else onClick,
+        onLongClick = onLongPress,
+      )
       .testTag("watchlist_item_${entry.item.id}"),
     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
   ) {
-    Column(Modifier.padding(16.dp)) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      if (isSelectionMode) {
+        Checkbox(
+          checked = isSelected,
+          onCheckedChange = { onToggleSelect() },
+          modifier = Modifier.padding(start = 8.dp).testTag("select_${entry.item.id}"),
+        )
+      }
+      WatchlistCardContent(entry, onOpenBooking, Modifier.weight(1f))
+    }
+  }
+}
+
+@Composable
+private fun WatchlistCardContent(
+  entry: WatchlistEntry,
+  onOpenBooking: (String) -> Unit,
+  modifier: Modifier = Modifier,
+) {
+    Column(modifier.padding(16.dp)) {
       Row(verticalAlignment = Alignment.Top) {
         // A small portrait poster once TMDB has resolved one; nothing forces the layout while
         // it hasn't, which is deliberate — posters fill in gradually as the resolver catches up.
@@ -418,5 +524,4 @@ private fun WatchlistCard(
         )
       }
     }
-  }
 }
