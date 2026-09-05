@@ -104,6 +104,11 @@ dependencies {
   testImplementation(libs.kotlinx.coroutines.test)
   testImplementation(libs.okhttp.mockwebserver)
   testImplementation(libs.json.jvm)
+  // Room needs a real SQLite to test DAOs against; Robolectric provides one on the JVM so the
+  // watchlist-provenance tests don't need a device or emulator.
+  testImplementation(libs.robolectric)
+  testImplementation(libs.androidx.test.core)
+  testImplementation(libs.androidx.room.testing)
 
   androidTestImplementation(platform(libs.androidx.compose.bom))
   androidTestImplementation(libs.androidx.compose.ui.test.junit4)
@@ -113,4 +118,20 @@ dependencies {
   debugImplementation(libs.androidx.compose.ui.tooling)
 
   "ksp"(libs.androidx.room.compiler)
+}
+
+// Without this, Kotlin follows whatever JDK runs Gradle (25 in CI) and emits class files
+// Robolectric's bundled ASM cannot parse ("IllegalArgumentException" from ClassReader).
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+  compilerOptions.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
+}
+
+// Robolectric's instrumenting classloader also parses the *running* JDK's own class files (to
+// resolve common superclasses) — on JDK 25 those are class file version 69, newer than
+// Robolectric 4.14.1's bundled ASM understands. Run unit tests on an older, provisioned JDK
+// instead of whatever JDK happens to run Gradle.
+tasks.withType<Test>().configureEach {
+  javaLauncher.set(
+    javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) }
+  )
 }
