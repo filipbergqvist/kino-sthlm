@@ -1,15 +1,14 @@
 package se.kinosthlm.app.ui.screens
 
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
@@ -33,6 +32,7 @@ private val DAY_HEADER = DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.ENGLI
 private val TIME = DateTimeFormatter.ofPattern("HH:mm", Locale.ENGLISH)
 
 /** Every upcoming screening we matched, grouped by day and filterable by cinema. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ScheduleScreen(
   uiState: UiState,
@@ -41,11 +41,10 @@ fun ScheduleScreen(
   modifier: Modifier = Modifier,
 ) {
   Column(modifier.fillMaxWidth()) {
-    Row(
-      Modifier.fillMaxWidth()
-        .horizontalScroll(rememberScrollState())
-        .padding(horizontal = 16.dp, vertical = 8.dp),
+    FlowRow(
+      Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
       horizontalArrangement = Arrangement.spacedBy(8.dp),
+      verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
       FilterChip(
         selected = uiState.cinemaFilter == null,
