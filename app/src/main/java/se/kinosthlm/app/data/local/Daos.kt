@@ -267,9 +267,10 @@ interface CinemaDao {
   suspend fun setEnabled(id: String, isEnabled: Boolean)
 
   @Query(
-    "UPDATE cinemas SET lastPolledAt = :timestamp, upcomingScreeningsCount = :count WHERE id = :id"
+    "UPDATE cinemas SET lastPolledAt = :timestamp, upcomingScreeningsCount = :count, " +
+      "lastSeenScreeningsCount = :seen WHERE id = :id"
   )
-  suspend fun updateStats(id: String, timestamp: Long, count: Int)
+  suspend fun updateStats(id: String, timestamp: Long, count: Int, seen: Int)
 }
 
 @Dao

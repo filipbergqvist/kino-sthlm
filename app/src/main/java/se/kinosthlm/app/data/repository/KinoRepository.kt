@@ -127,7 +127,7 @@ private constructor(
       database.cinemaDao().setEnabled(cinemaId, isEnabled)
       if (!isEnabled) {
         database.screeningDao().deleteForCinema(cinemaId)
-        database.cinemaDao().updateStats(cinemaId, 0L, 0)
+        database.cinemaDao().updateStats(cinemaId, 0L, 0, 0)
       }
     }
 
@@ -617,7 +617,14 @@ private constructor(
 
       for (cinema in enabled) {
         database.cinemaDao()
-          .updateStats(cinema.id, startedAt, matched.count { it.cinemaId == cinema.id })
+          .updateStats(
+            id = cinema.id,
+            timestamp = startedAt,
+            count = matched.count { it.cinemaId == cinema.id },
+            // Everything we could read there, matched or not — the number that tells a quiet
+            // week apart from a broken adapter.
+            seen = raw.count { it.cinemaId == cinema.id },
+          )
       }
 
       // 6. Notify about showings the user has not been told about yet.

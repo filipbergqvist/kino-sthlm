@@ -30,7 +30,7 @@ import se.kinosthlm.app.data.source.TellusSource
     WatchlistSource::class,
     ScreeningTitleCache::class,
   ],
-  version = 9,
+  version = 10,
   exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -67,6 +67,16 @@ abstract class AppDatabase : RoomDatabase() {
         }
       }
 
+    /** One diagnostic counter on the cinema list. Reference data, but no reason to wipe for it. */
+    private val MIGRATION_9_10 =
+      object : Migration(9, 10) {
+        override fun migrate(connection: SQLiteConnection) {
+          connection.execSQL(
+            "ALTER TABLE cinemas ADD COLUMN lastSeenScreeningsCount INTEGER NOT NULL DEFAULT 0"
+          )
+        }
+      }
+
     fun getDatabase(context: Context): AppDatabase =
       INSTANCE
         ?: synchronized(this) {
@@ -76,7 +86,7 @@ abstract class AppDatabase : RoomDatabase() {
                 AppDatabase::class.java,
                 "kinosthlm.db",
               )
-              .addMigrations(MIGRATION_8_9)
+              .addMigrations(MIGRATION_8_9, MIGRATION_9_10)
               // Still the fallback for the older pre-release versions, which have no migration
               // path written for them. The cinema list re-seeds and screenings re-fetch, so the
               // only real cost is a watchlist re-import.

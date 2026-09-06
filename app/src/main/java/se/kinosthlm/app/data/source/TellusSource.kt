@@ -30,13 +30,29 @@ class TellusSource(private val baseUrl: String = BASE) : CinemaSource {
   ): List<RawScreening> = withContext(Dispatchers.IO) {
     val cinema = cinemas.firstOrNull() ?: return@withContext emptyList()
 
-    val url = "$baseUrl?per_page=$PER_PAGE" +
+    val window =
       "&start_date=${DATE.format(LocalDateTime.ofInstant(from, SwedishDates.STOCKHOLM))}" +
-      "&end_date=${DATE.format(LocalDateTime.ofInstant(to, SwedishDates.STOCKHOLM))}"
+        "&end_date=${DATE.format(LocalDateTime.ofInstant(to, SwedishDates.STOCKHOLM))}"
 
-    parse(Http.getString(url), cinema).filter {
-      !it.startTime.isBefore(from) && !it.startTime.isAfter(to)
-    }
+    // Ask for the film categories only. Tellus is a cultural venue as much as a cinema — jazz
+    // nights, a supper club, programme launches — and it files all of that in the same calendar.
+    // Its own categorisation is a far better judge of what is a film than any guess we could make
+    // from the title: it counts "Förstadens filmsalong" as a screening, which a keyword rule
+    // would have thrown away.
+    val filtered =
+      runCatching { parse(Http.getString("$baseUrl?per_page=$PER_PAGE$window&categories=$FILM_CATEGORIES"), cinema) }
+        .getOrDefault(emptyList())
+
+    // If the category ids ever change under us, that request comes back empty rather than
+    // failing — which would look exactly like a quiet week. Fall back to the whole calendar and
+    // filter by name, which is worse but not silent.
+    val screenings =
+      filtered.ifEmpty {
+        parse(Http.getString("$baseUrl?per_page=$PER_PAGE$window"), cinema)
+          .filterNot { ProgrammeStrands.isNonFilmEvent(it.title) }
+      }
+
+    screenings.filter { !it.startTime.isBefore(from) && !it.startTime.isAfter(to) }
   }
 
   /** Split out from the fetch so the mapping is testable against a saved response. */
@@ -50,13 +66,25 @@ class TellusSource(private val baseUrl: String = BASE) : CinemaSource {
         ?.let { runCatching { LocalDateTime.parse(it, STORED).toInstant(ZoneOffset.UTC) }.getOrNull() }
         ?: return@mapNotNull null
 
-      val title = decodeEntities(event.optString("title")).takeIf { it.isNotBlank() }
+      val listed = decodeEntities(event.optString("title")).takeIf { it.isNotBlank() }
         ?: return@mapNotNull null
+
+      // The category filter is the venue's judgement and gets the jazz nights and the supper
+      // club right, but it is not the whole answer: "Förstadens filmsalong" is filed as a film
+      // and is actually a secret-cinema night, with no title to match on by design. So the name
+      // check stays as well.
+      if (ProgrammeStrands.isNonFilmEvent(listed)) return@mapNotNull null
+
+      // Branded even inside the film categories: "Frukostbio: Spider-Man – Brand New Day",
+      // "Dokumentär med regissörsbesök: Lillpojkens flykt till väst".
+      val cleaned = ProgrammeStrands.clean(listed)
 
       RawScreening(
         cinemaId = cinema.id,
         cinemaName = cinema.name,
-        title = title,
+        title = cleaned.title,
+        originalTitle = cleaned.originalTitle,
+        year = cleaned.year,
         startTime = start,
         // "website" is the Nortic ticket page; fall back to the event page itself.
         bookingUrl = event.optString("website").takeIf { it.isNotBlank() }
@@ -79,7 +107,13 @@ class TellusSource(private val baseUrl: String = BASE) : CinemaSource {
   companion object {
     const val SOURCE_ID = "bio_tellus"
     private const val HOME = "https://tellusbio.nu/"
+
     private const val BASE = "https://tellusbio.nu/wp-json/tribe/events/v1/events"
+    /**
+     * The Events Calendar category ids Tellus files screenings under. Taken from its own
+     * "Filmer" filter on tellusbio.nu/programmet.
+     */
+    private const val FILM_CATEGORIES = "15,23,28,38"
     private const val PER_PAGE = 50
     private val DATE = DateTimeFormatter.ofPattern("yyyy-MM-dd")
     private val STORED = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")

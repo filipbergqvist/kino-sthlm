@@ -118,7 +118,17 @@ data class Cinema(
   val specialty: String = "",
   val isEnabled: Boolean = true,
   val lastPolledAt: Long = 0L,
+  /** Screenings here that matched something on the watchlist. */
   val upcomingScreeningsCount: Int = 0,
+  /**
+   * Every screening we could read at this venue last sync, matched or not.
+   *
+   * The diagnostic number. "No matches right now" is an ordinary state and tells you nothing
+   * about whether the adapter still works — but "0 screenings found" at a cinema that plainly
+   * has a programme is a broken source, and this is the only place that difference is visible
+   * without running the canaries.
+   */
+  val lastSeenScreeningsCount: Int = 0,
   /** Comma-joined venue features, e.g. "Big Screen,IMAX". See [tagList]. */
   val tags: String = "",
 ) {

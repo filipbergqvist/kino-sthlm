@@ -132,21 +132,34 @@ private fun CinemaCard(
         verticalAlignment = Alignment.CenterVertically,
       ) {
         // State the truth about this venue rather than a generic "connected" badge.
+        //
+        // Both numbers, because they answer different questions. "No matches right now" is an
+        // ordinary week and says nothing about whether we can still read the programme; "0 found"
+        // at a cinema that plainly has one is a broken adapter. Only showing the match count hid
+        // exactly that difference — which is how Bio Capitol looked fine while returning titles
+        // nothing could ever match.
         val status =
           when {
             !cinema.isEnabled -> "Not followed"
             error != null -> "Last sync failed: $error"
             cinema.lastPolledAt == 0L -> "Not synced yet"
+            cinema.lastSeenScreeningsCount == 0 -> "0 screenings found — check this cinema"
             cinema.upcomingScreeningsCount > 0 ->
-              "${cinema.upcomingScreeningsCount} matching screening(s)"
-            else -> "No matches right now"
+              "${cinema.upcomingScreeningsCount} of ${cinema.lastSeenScreeningsCount} " +
+                "screenings match your list"
+            else -> "${cinema.lastSeenScreeningsCount} screenings found, none on your list"
           }
         Text(
           status,
           style = MaterialTheme.typography.bodySmall,
           color =
-            if (error != null && cinema.isEnabled) MaterialTheme.colorScheme.error
-            else MaterialTheme.colorScheme.onSurfaceVariant,
+            if (cinema.isEnabled &&
+              (error != null || (cinema.lastPolledAt > 0L && cinema.lastSeenScreeningsCount == 0))
+            ) {
+              MaterialTheme.colorScheme.error
+            } else {
+              MaterialTheme.colorScheme.onSurfaceVariant
+            },
           modifier = Modifier.weight(1f),
         )
         TextButton(onClick = onOpenWebsite) { Text("Website") }

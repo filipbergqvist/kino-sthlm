@@ -40,7 +40,14 @@ class SkandiaSource(private val indexUrl: String = INDEX) : CinemaSource {
 
       val relevant =
         parseIndex(Http.getString(indexUrl, accept = "text/html"), indexUrl).filter { film ->
-          TitleMatcher.findMatch(MatchCandidate(title = film.title), watchlist) != null
+          TitleMatcher.findMatch(
+            MatchCandidate(
+              title = film.title,
+              originalTitle = film.originalTitle,
+              year = film.year,
+            ),
+            watchlist,
+          ) != null
         }
       if (relevant.isEmpty()) return@withContext emptyList()
 
@@ -50,6 +57,8 @@ class SkandiaSource(private val indexUrl: String = INDEX) : CinemaSource {
             baseUrl = film.url,
             cinema = cinema,
             title = film.title,
+            originalTitle = film.originalTitle,
+            year = film.year,
           )
           .filter { !it.startTime.isBefore(from) && !it.startTime.isAfter(to) }
       }
@@ -60,10 +69,24 @@ class SkandiaSource(private val indexUrl: String = INDEX) : CinemaSource {
     Jsoup.parse(html, baseUrl)
       .select("a[href*=/filmer/]")
       .mapNotNull { link ->
-        val title =
+        val listed =
           link.selectFirst("h2")?.text()?.trim()?.takeIf { it.isNotEmpty() }
             ?: return@mapNotNull null
-        Film(title = title, url = link.absUrl("href"))
+
+        // Skandia runs its auditorium as a venue as well as a cinema — guided tours, live
+        // performances, its own birthday party — all listed here alongside the films.
+        if (ProgrammeStrands.isNonFilmEvent(listed)) return@mapNotNull null
+
+        // And its films carry the cinema's own furniture: "The Odyssey (70MM)",
+        // "Cinemateket: Persona", "Parasite (기생충)". The Korean is worth keeping — it is the
+        // film's original title, and what TMDB indexes it under — the projector format is not.
+        val cleaned = ProgrammeStrands.clean(listed)
+        Film(
+          title = cleaned.title,
+          originalTitle = cleaned.originalTitle,
+          year = cleaned.year,
+          url = link.absUrl("href"),
+        )
       }
       .distinctBy { it.url }
 
@@ -73,6 +96,8 @@ class SkandiaSource(private val indexUrl: String = INDEX) : CinemaSource {
     baseUrl: String,
     cinema: Cinema,
     title: String,
+    originalTitle: String? = null,
+    year: Int? = null,
     today: LocalDate = LocalDate.now(SwedishDates.STOCKHOLM),
   ): List<RawScreening> =
     Jsoup.parse(html, baseUrl)
@@ -85,6 +110,8 @@ class SkandiaSource(private val indexUrl: String = INDEX) : CinemaSource {
           cinemaId = cinema.id,
           cinemaName = cinema.name,
           title = title,
+          originalTitle = originalTitle,
+          year = year,
           startTime = start,
           bookingUrl = link.absUrl("href").ifBlank { baseUrl },
         )
@@ -104,7 +131,12 @@ class SkandiaSource(private val indexUrl: String = INDEX) : CinemaSource {
       .toInstant()
   }
 
-  internal data class Film(val title: String, val url: String)
+  internal data class Film(
+    val title: String,
+    val url: String,
+    val originalTitle: String? = null,
+    val year: Int? = null,
+  )
 
   companion object {
     const val SOURCE_ID = "bio_skandia"

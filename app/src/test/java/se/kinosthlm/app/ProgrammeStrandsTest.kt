@@ -1,7 +1,9 @@
 package se.kinosthlm.app
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import se.kinosthlm.app.data.source.ProgrammeStrands
 
@@ -78,6 +80,60 @@ class ProgrammeStrandsTest {
     assertEquals("Blommor av Stål", cleaned.title)
     assertEquals("Steel Magnolias", cleaned.originalTitle)
     assertNull(cleaned.year)
+  }
+
+  @Test
+  fun `tells a format note apart from an original title`() {
+    // Bio Skandia writes both. The Korean is the film's real title and exactly what TMDB
+    // indexes it under; "70MM" is a projector.
+    val format = ProgrammeStrands.clean("The Odyssey (70MM)")
+    assertEquals("The Odyssey", format.title)
+    assertNull(format.originalTitle)
+    assertEquals(listOf("70MM"), format.formats)
+
+    val korean = ProgrammeStrands.clean("Parasite (기생충)")
+    assertEquals("Parasite", korean.title)
+    assertEquals("기생충", korean.originalTitle)
+  }
+
+  @Test
+  fun `handles a title carrying both`() {
+    val cleaned = ProgrammeStrands.clean("Parasite (기생충) (4K)")
+
+    assertEquals("Parasite", cleaned.title)
+    assertEquals("기생충", cleaned.originalTitle)
+    assertEquals(listOf("4K"), cleaned.formats)
+  }
+
+  @Test
+  fun `strips festival furniture and tidies spacing`() {
+    assertEquals("Hope", clean("Hope  (호프) -  Opening film"))
+    assertEquals("Hope", clean("Hope - with panel discussion (호프)"))
+    assertEquals("The Mutation", clean("The Mutation  (사랑의 탄생)"))
+  }
+
+  @Test
+  fun `strips a qualified strand label`() {
+    // Venues qualify their strands rather than using them bare, and enumerating every
+    // combination is a losing game — so the label is matched on its first word.
+    assertEquals(
+      "Lillpojkens flykt till väst",
+      clean("Dokumentär med regissörsbesök: Lillpojkens flykt till väst"),
+    )
+    assertEquals("Persona", clean("Cinemateket: Persona"))
+  }
+
+  @Test
+  fun `drops events that are not screenings`() {
+    assertTrue(ProgrammeStrands.isNonFilmEvent("Jazzkroki"))
+    assertTrue(ProgrammeStrands.isNonFilmEvent("Torsdagssoppa"))
+    assertTrue(ProgrammeStrands.isNonFilmEvent("Guidad visning av Bio Skandia"))
+    // Secret cinema has no title to match on by design.
+    assertTrue(ProgrammeStrands.isNonFilmEvent("Förstadens filmsalong"))
+    assertTrue(ProgrammeStrands.isNonFilmEvent("Secret Cinema"))
+    // And these are films, however much they sound like an evening out.
+    assertFalse(ProgrammeStrands.isNonFilmEvent("Frukost med Alzheimer"))
+    assertFalse(ProgrammeStrands.isNonFilmEvent("La Grazia"))
   }
 
   @Test
