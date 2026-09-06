@@ -5,6 +5,7 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import kotlinx.coroutines.runBlocking
 import org.junit.Assume.assumeTrue
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import se.kinosthlm.app.data.model.Cinema
@@ -43,11 +44,50 @@ import se.kinosthlm.app.data.watchlist.TitleLookup
  */
 class SourceParseReportTest {
 
+  /**
+   * Everything printed, kept so it can be written to a file as well as the console.
+   *
+   * The file is the point of this in CI: Actions logs and artifacts both need authentication to
+   * read, so a report that only reaches the console is one nobody can be pointed at afterwards.
+   * Committed back to the repository, it can just be read.
+   */
+  private val lines = mutableListOf<String>()
+
+  private fun report(line: String) {
+    lines += line
+    println(line)
+  }
+
   @Before
   fun requireOptIn() {
     assumeTrue(
       "Set KINO_LIVE_TESTS=1 to run the source parse report",
       System.getenv("KINO_LIVE_TESTS") == "1",
+    )
+  }
+
+  @After
+  fun writeReport() {
+    val path = System.getenv("KINO_REPORT_FILE")?.takeIf { it.isNotBlank() } ?: return
+    val file = java.io.File(path)
+    file.parentFile?.mkdirs()
+    file.writeText(
+      buildString {
+        appendLine("# Cinema parse report")
+        appendLine()
+        appendLine("Generated ${Instant.now()}.")
+        appendLine()
+        appendLine(
+          "What each cinema's listings resolve to on TMDB. Only \"not found\" points at a " +
+            "parsing problem: \"ambiguous\" means TMDB knows the film but the cinema published " +
+            "no year to tell it from its namesakes, and those still match by title against a " +
+            "watchlist."
+        )
+        appendLine()
+        appendLine("```")
+        lines.forEach { appendLine(it) }
+        appendLine("```")
+      }
     )
   }
 
@@ -102,15 +142,15 @@ class SourceParseReportTest {
       val screenings =
         runCatching { source.fetchScreenings(venues, everything, from, to) }
           .getOrElse {
-            println("")
-            println("===== $name =====")
-            println("  COULD NOT READ: ${it::class.simpleName}: ${it.message}")
+            report("")
+            report("===== $name =====")
+            report("  COULD NOT READ: ${it::class.simpleName}: ${it.message}")
             continue
           }
 
-      println("")
-      println("===== $name =====")
-      println("  Listings found: ${screenings.size}")
+      report("")
+      report("===== $name =====")
+      report("  Listings found: ${screenings.size}")
 
       val byTitle = screenings.groupBy { it.title }.toSortedMap(String.CASE_INSENSITIVE_ORDER)
       var resolved = 0
@@ -124,24 +164,24 @@ class SourceParseReportTest {
           match.startsWith("AMBIGUOUS") -> ambiguous++
           else -> resolved++
         }
-        println("    ${describe(title, first)}  ->  ${match ?: "NOT FOUND — TMDB has nothing by this name"}")
-        println("        ${shows.size} showing(s): ${shows.sortedBy { s -> s.startTime }.take(4).joinToString(", ") { s -> stamp.format(s.startTime) }}")
+        report("    ${describe(title, first)}  ->  ${match ?: "NOT FOUND — TMDB has nothing by this name"}")
+        report("        ${shows.size} showing(s): ${shows.sortedBy { s -> s.startTime }.take(4).joinToString(", ") { s -> stamp.format(s.startTime) }}")
       }
       totalResolved += resolved
       totalAmbiguous += ambiguous
 
-      println(
+      report(
         "  Distinct titles: ${byTitle.size} — resolved $resolved, ambiguous $ambiguous, " +
           "not found $unresolved"
       )
-      println("  Final screenings: ${screenings.size}")
+      report("  Final screenings: ${screenings.size}")
     }
 
-    println("")
-    println(
+    report("")
+    report(
       "===== TOTAL: $totalResolved resolved, $totalAmbiguous ambiguous, $totalFailed not found ====="
     )
-    println(
+    report(
       "Only \"not found\" points at a parsing problem — ambiguous means TMDB knows the film but " +
         "the cinema published no year to tell it from its namesakes."
     )

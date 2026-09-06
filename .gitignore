@@ -10,3 +10,7 @@ local.properties
 /.idea/
 *.jks
 *.keystore
+
+# Generated diagnostics: written by the parse report, never committed.
+reports/
+build/parse-report.md

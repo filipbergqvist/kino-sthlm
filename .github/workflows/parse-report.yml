@@ -1,0 +1,57 @@
+name: Cinema parse report
+
+# Reads every open-programme cinema, asks TMDB what each listing is, and publishes the answer as
+# a build artifact and a job summary.
+#
+# Nothing is committed. The report is generated output — it changes every day, says nothing about
+# the state of the source, and putting it in the history would bury real changes under noise.
+on:
+  schedule:
+    # 06:00 UTC, before the canary, so a bad parse and a broken source show up together.
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Generate the parse report
+        env:
+          KINO_LIVE_TESTS: '1'
+          # Without a key nothing resolves and the report has no content worth reading.
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          KINO_REPORT_FILE: ${{ github.workspace }}/build/parse-report.md
+        run: ./gradlew testDebugUnitTest --tests '*SourceParseReportTest*' --rerun-tasks
+
+      # The summary is the quickest way to read it: it renders on the run page itself, with no
+      # download and no digging through logs.
+      - name: Publish to the run summary
+        if: always()
+        run: |
+          if [ -f build/parse-report.md ]; then
+            cat build/parse-report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'The report produced no output — see the job log.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: parse-report
+          path: build/parse-report.md
+          if-no-files-found: warn
+          # Long enough to look back over a week of runs, short enough not to accumulate.
+          retention-days: 30
