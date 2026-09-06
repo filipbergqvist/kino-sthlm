@@ -1,0 +1,148 @@
+{
+  "hits": {
+    "total": {
+      "value": 6,
+      "relation": "eq"
+    },
+    "hits": [
+      {
+        "_source": {
+          "drupalTitle": "Knattebio: Lilla Spöket Laban - spökdags",
+          "drupalLink": "https://kulturhusetstadsteatern.se/bio/knattebio-lilla-spoket-laban-spokdags",
+          "tixName": "Lilla Spöket Laban - spökdags",
+          "tixStartDate": "2026-09-06T12:30:00+02:00",
+          "tixEndDate": "2026-09-06T13:13:00+02:00",
+          "tixMinPrice": 50,
+          "tixTicketLink": "https://tix.kulturhusetstadsteatern.se/sv/buyingflow/tickets/31573/128663/",
+          "tixHall": [
+            {
+              "id": 472,
+              "label": "Klarabiografen"
+            }
+          ],
+          "drupalCategory": [
+            {
+              "id": "6",
+              "label": "Bio"
+            }
+          ]
+        }
+      },
+      {
+        "_source": {
+          "drupalTitle": "Harry Potter och den Flammande Bägaren",
+          "drupalLink": "https://kulturhusetstadsteatern.se/bio/harry-potter-och-den-flammande-bagaren",
+          "tixName": "Harry Potter och den Flammande Bägaren",
+          "tixStartDate": "2026-09-06T14:00:00+02:00",
+          "tixEndDate": "2026-09-06T16:37:00+02:00",
+          "tixMinPrice": 75,
+          "tixTicketLink": "https://tix.kulturhusetstadsteatern.se/sv/buyingflow/tickets/32008/130115/",
+          "tixHall": [
+            {
+              "id": 472,
+              "label": "Klarabiografen"
+            }
+          ],
+          "drupalCategory": [
+            {
+              "id": "6",
+              "label": "Bio"
+            }
+          ]
+        }
+      },
+      {
+        "_source": {
+          "drupalTitle": "Lions Love (Timelessfest)",
+          "drupalLink": "https://kulturhusetstadsteatern.se/bio/lions-love-timelessfest",
+          "tixName": "Lion’s Love",
+          "tixStartDate": "2026-09-06T17:00:00+02:00",
+          "tixEndDate": "2026-09-06T18:52:00+02:00",
+          "tixMinPrice": 115,
+          "tixTicketLink": "https://tix.kulturhusetstadsteatern.se/sv/buyingflow/tickets/32329/131695/",
+          "tixHall": [
+            {
+              "id": 472,
+              "label": "Klarabiografen"
+            }
+          ],
+          "drupalCategory": [
+            {
+              "id": "6",
+              "label": "Bio"
+            }
+          ]
+        }
+      },
+      {
+        "_source": {
+          "drupalTitle": "De levande döda i Rojava",
+          "drupalLink": "https://kulturhusetstadsteatern.se/bio/x",
+          "tixName": "De levande döda i Rojava",
+          "tixStartDate": "2026-09-07T19:00:00+02:00",
+          "tixEndDate": "2026-09-07T19:00:00+02:00",
+          "tixMinPrice": 50,
+          "tixTicketLink": "https://tix.kulturhusetstadsteatern.se/sv/buyingflow/tickets/31950/129991/",
+          "tixHall": [
+            {
+              "id": 1,
+              "label": "Skärisbiografen"
+            }
+          ],
+          "drupalCategory": [
+            {
+              "id": "7",
+              "label": "Bio"
+            }
+          ]
+        }
+      },
+      {
+        "_source": {
+          "drupalTitle": "Parasite",
+          "drupalLink": "https://kulturhusetstadsteatern.se/bio/x",
+          "tixName": "Parasite (기생충)",
+          "tixStartDate": "2026-09-11T18:00:00+02:00",
+          "tixEndDate": "2026-09-11T18:00:00+02:00",
+          "tixMinPrice": 0,
+          "tixTicketLink": "https://tix.kulturhusetstadsteatern.se/sv/buyingflow/tickets/1/2/",
+          "tixHall": [
+            {
+              "id": 1,
+              "label": "Bio Husby"
+            }
+          ],
+          "drupalCategory": [
+            {
+              "id": "7",
+              "label": "Bio"
+            }
+          ]
+        }
+      },
+      {
+        "_source": {
+          "drupalTitle": "Hamlet",
+          "drupalLink": "https://kulturhusetstadsteatern.se/bio/x",
+          "tixName": "Hamlet",
+          "tixStartDate": "2026-09-12T19:00:00+02:00",
+          "tixEndDate": "2026-09-12T19:00:00+02:00",
+          "tixMinPrice": 300,
+          "tixTicketLink": "https://tix.kulturhusetstadsteatern.se/sv/buyingflow/tickets/3/4/",
+          "tixHall": [
+            {
+              "id": 1,
+              "label": "Stora scenen"
+            }
+          ],
+          "drupalCategory": [
+            {
+              "id": "7",
+              "label": "Bio"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

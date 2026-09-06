@@ -16,6 +16,7 @@ import se.kinosthlm.app.data.source.BioRioSource
 import se.kinosthlm.app.data.source.CapitolSource
 import se.kinosthlm.app.data.source.CinemaSource
 import se.kinosthlm.app.data.source.FilmstadenSource
+import se.kinosthlm.app.data.source.KulturhusetSource
 import se.kinosthlm.app.data.source.SkandiaSource
 import se.kinosthlm.app.data.source.SwedishDates
 import se.kinosthlm.app.data.source.TellusSource
@@ -353,6 +354,30 @@ class LiveSourceCanaryTest {
     val details = lookup.fetchMovieDetails(byId!!.tmdbId)
     assertTrue("Movie details lookup returned nothing", details != null)
     assertTrue("Movie details had no poster", details?.posterUrl != null)
+  }
+
+  @Test
+  fun `kulturhuset still serves its film programme`() = runTest {
+    val source = KulturhusetSource()
+    val screenings =
+      source.fetchScreenings(
+        cinemas =
+          listOf(
+            cinema("kulturhuset_klara", "Klarabiografen", source, "Klarabiografen"),
+            cinema("kulturhuset_skaris", "Skärisbiografen", source, "Skärisbiografen"),
+            cinema("kulturhuset_husby", "Bio Husby", source, "Bio Husby"),
+          ),
+        watchlist = watchlistOf("anything"),
+        from = from,
+        to = to,
+      )
+
+    assertTrue(
+      "Kulturhuset returned nothing — the calendar index or its film facet has changed",
+      screenings.isNotEmpty(),
+    )
+    // The index carries the whole house. Anything from a room we do not follow is a routing bug.
+    assertTrue(screenings.all { it.cinemaId.startsWith("kulturhuset_") })
   }
 
   @Test

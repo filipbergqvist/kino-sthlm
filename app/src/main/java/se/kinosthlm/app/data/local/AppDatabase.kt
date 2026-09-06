@@ -20,6 +20,7 @@ import se.kinosthlm.app.data.source.CinemateketSource
 import se.kinosthlm.app.data.source.FagelBlaSource
 import se.kinosthlm.app.data.source.FilmstadenSource
 import se.kinosthlm.app.data.source.KaskadSource
+import se.kinosthlm.app.data.source.KulturhusetSource
 import se.kinosthlm.app.data.source.SkandiaSource
 import se.kinosthlm.app.data.source.TellusSource
 import se.kinosthlm.app.data.source.ZitaSource
@@ -229,6 +230,42 @@ abstract class AppDatabase : RoomDatabase() {
           sourceId = CinemateketSource.SOURCE_ID,
           remoteId = "Mauritz",
           specialty = "The Swedish Film Institute's smaller auditorium",
+          tags = Cinema.TAG_COZY,
+        ),
+        // Kulturhuset Stadsteatern runs three cinemas out of one programme, so they are three
+        // venues sharing a source. remoteId is the auditorium name its calendar uses, which is
+        // how a showing is routed to the right one.
+        Cinema(
+          id = "kulturhuset_klara",
+          name = "Klarabiografen",
+          district = "Norrmalm",
+          address = "Sergels torg 3",
+          websiteUrl = "https://kulturhusetstadsteatern.se/bio",
+          sourceId = KulturhusetSource.SOURCE_ID,
+          remoteId = "Klarabiografen",
+          specialty = "Kulturhuset's main cinema; festivals, retrospectives and premieres",
+          tags = Cinema.TAG_COZY,
+        ),
+        Cinema(
+          id = "kulturhuset_skaris",
+          name = "Skärisbiografen",
+          district = "Skärholmen",
+          address = "Bodholmsplan 2",
+          websiteUrl = "https://kulturhusetstadsteatern.se/bio",
+          sourceId = KulturhusetSource.SOURCE_ID,
+          remoteId = "Skärisbiografen",
+          specialty = "Kulturhuset Skärholmen's cinema",
+          tags = Cinema.TAG_COZY,
+        ),
+        Cinema(
+          id = "kulturhuset_husby",
+          name = "Bio Husby",
+          district = "Husby",
+          address = "Edvard Griegsgången 16",
+          websiteUrl = "https://kulturhusetstadsteatern.se/bio",
+          sourceId = KulturhusetSource.SOURCE_ID,
+          remoteId = "Bio Husby",
+          specialty = "Kulturhuset Husby's cinema",
           tags = Cinema.TAG_COZY,
         ),
         Cinema(

@@ -45,7 +45,14 @@ class BioRioSource(private val calendarUrl: String = CALENDAR) : CinemaSource {
         val start = SwedishDates.parse(day, monthToken, time) ?: return@mapNotNull null
 
         val titleLink = item.selectFirst("a.kalender-showtime-title") ?: return@mapNotNull null
-        val title = titleLink.text().trim().takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+        val listed = titleLink.text().trim().takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+        if (ProgrammeStrands.isNonFilmEvent(listed)) return@mapNotNull null
+
+        // Rio was the first adapter written and the last to be told about this, which is why its
+        // listings kept reaching TMDB as "Sagan om ringen (1978)" and "The Odyssey 35mm -
+        // otextad" — a year and a projector welded to the title, so nothing matched. The year is
+        // worth keeping, just as a field rather than as part of the name.
+        val cleaned = ProgrammeStrands.clean(listed)
 
         val bookingUrl =
           item.selectFirst("a.kalender-showtime-poster")?.absUrl("href")?.takeIf { it.isNotBlank() }
@@ -54,8 +61,11 @@ class BioRioSource(private val calendarUrl: String = CALENDAR) : CinemaSource {
         RawScreening(
           cinemaId = cinema.id,
           cinemaName = cinema.name,
-          title = title,
+          title = cleaned.title,
+          originalTitle = cleaned.originalTitle,
+          year = cleaned.year,
           startTime = start.atZone(SwedishDates.STOCKHOLM).toInstant(),
+          formatTags = cleaned.formats,
           bookingUrl = bookingUrl,
         )
       }

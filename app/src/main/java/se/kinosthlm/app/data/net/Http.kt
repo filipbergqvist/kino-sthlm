@@ -7,7 +7,9 @@ import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 
 /**
  * Shared HTTP plumbing. Every cinema source and watchlist provider uses the same client so
@@ -90,6 +92,31 @@ object Http {
       return body
     }
   }
+
+  /**
+   * POST a JSON [body] and return the response as text.
+   *
+   * Only for a search API that takes its query in the body rather than the URL — Kulturhuset's
+   * calendar index is one. Same contract as [getString]: throws on any non-2xx.
+   */
+  fun postJson(url: String, body: String, authorization: String? = null): String {
+    val request =
+      Request.Builder()
+        .url(url)
+        .header("User-Agent", USER_AGENT)
+        .header("Accept", "application/json")
+        .apply { authorization?.let { header("Authorization", it) } }
+        .post(body.toRequestBody(JSON))
+        .build()
+
+    client.newCall(request).execute().use { response ->
+      val text = response.body?.string().orEmpty()
+      if (!response.isSuccessful) throw HttpStatusException(response.code, url)
+      return text
+    }
+  }
+
+  private val JSON = "application/json; charset=utf-8".toMediaType()
 
   inline fun <reified T> getJson(url: String): T {
     val json = getString(url)

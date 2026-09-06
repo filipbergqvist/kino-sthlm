@@ -17,6 +17,7 @@ import se.kinosthlm.app.data.source.CinemaSource
 import se.kinosthlm.app.data.source.CinemateketSource
 import se.kinosthlm.app.data.source.FagelBlaSource
 import se.kinosthlm.app.data.source.KaskadSource
+import se.kinosthlm.app.data.source.KulturhusetSource
 import se.kinosthlm.app.data.source.RawScreening
 import se.kinosthlm.app.data.source.SkandiaSource
 import se.kinosthlm.app.data.source.TellusSource
@@ -126,6 +127,15 @@ class SourceParseReportTest {
         Triple("Bio Kaskad", KaskadSource(), listOf(venue("bio_kaskad", "Bio Kaskad", KaskadSource()))),
         Triple("Zita Folkets Bio", ZitaSource(), listOf(venue("zita", "Zita Folkets Bio", ZitaSource()))),
         Triple("Bio Skandia", SkandiaSource(), listOf(venue("bio_skandia", "Bio Skandia", SkandiaSource()))),
+        Triple(
+          "Kulturhuset Stadsteatern",
+          KulturhusetSource(),
+          listOf(
+            venue("kulturhuset_klara", "Klarabiografen", KulturhusetSource(), "Klarabiografen"),
+            venue("kulturhuset_skaris", "Skärisbiografen", KulturhusetSource(), "Skärisbiografen"),
+            venue("kulturhuset_husby", "Bio Husby", KulturhusetSource(), "Bio Husby"),
+          ),
+        ),
         Triple(
           "Cinemateket",
           CinemateketSource(),

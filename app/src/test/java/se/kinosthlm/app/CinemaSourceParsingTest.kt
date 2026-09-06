@@ -15,6 +15,7 @@ import se.kinosthlm.app.data.model.WatchlistItem
 import se.kinosthlm.app.data.source.BioRioSource
 import se.kinosthlm.app.data.source.CapitolSource
 import se.kinosthlm.app.data.source.FilmstadenSource
+import se.kinosthlm.app.data.source.KulturhusetSource
 import se.kinosthlm.app.data.source.SkandiaSource
 import se.kinosthlm.app.data.source.SwedishDates
 import se.kinosthlm.app.data.source.TellusSource
@@ -129,6 +130,49 @@ class CinemaSourceParsingTest {
     // The calendar spans months, unlike a short rolling window.
     val months = screenings.map { it.startTime.atZone(SwedishDates.STOCKHOLM).monthValue }.toSet()
     assertTrue("expected screenings across multiple months", months.size > 1)
+
+    // Rio welds the year and the projector onto the title. Both are worth knowing and neither is
+    // the film's name — left in, they were what reached TMDB, which is why a film it knows
+    // perfectly well came back as not found.
+    val lotr = screenings.single { it.title == "Sagan om ringen" }
+    assertEquals(1978, lotr.year)
+    val odyssey = screenings.single { it.title == "The Odyssey" }
+    assertTrue(odyssey.formatTags.any { it.equals("35mm", ignoreCase = true) })
+  }
+
+  // --- Kulturhuset Stadsteatern: three cinemas out of one calendar index ---
+
+  @Test
+  fun `kulturhuset routes showings to the right auditorium`() {
+    val venues =
+      listOf(
+        cinema("kulturhuset_klara", "Klarabiografen", "Klarabiografen"),
+        cinema("kulturhuset_skaris", "Skärisbiografen", "Skärisbiografen"),
+        cinema("kulturhuset_husby", "Bio Husby", "Bio Husby"),
+      )
+    val page = KulturhusetSource().parse(fixture("kulturhuset_events.json"), venues)
+
+    // Five film rows across three rooms. The sixth is a play on the main stage: a room nobody
+    // follows, in an index that carries the whole house, so it must not become a screening.
+    assertEquals(5, page.screenings.size)
+    assertTrue(page.screenings.none { it.title == "Hamlet" })
+    assertEquals(3, page.screenings.count { it.cinemaId == "kulturhuset_klara" })
+    assertEquals(1, page.screenings.count { it.cinemaId == "kulturhuset_skaris" })
+    assertEquals(1, page.screenings.count { it.cinemaId == "kulturhuset_husby" })
+
+    // The index carries a real offset, so nothing is inferred about the time zone.
+    val laban = page.screenings.first { it.title.contains("Laban") }
+    val local = laban.startTime.atZone(SwedishDates.STOCKHOLM)
+    assertEquals(12, local.hour)
+    assertEquals(30, local.minute)
+    // The Drupal title wraps this one in its strand ("Knattebio: …"); the ticketing name does
+    // not, which is why that is the one we read. The price is worth keeping either way.
+    assertEquals("Lilla Spöket Laban - spökdags", laban.title)
+    assertEquals(50, laban.priceSek)
+    assertTrue(laban.bookingUrl.contains("tix.kulturhusetstadsteatern.se"))
+
+    // A Korean original title survives, as everywhere else.
+    assertEquals("기생충", page.screenings.first { it.title == "Parasite" }.originalTitle)
   }
 
   // --- Biocafé Tellus: The Events Calendar REST API ---

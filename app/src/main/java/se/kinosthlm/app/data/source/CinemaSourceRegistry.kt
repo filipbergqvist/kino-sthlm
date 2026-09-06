@@ -10,6 +10,7 @@ object CinemaSourceRegistry {
   val all: List<CinemaSource> = listOf(
     FilmstadenSource(),
     SkandiaSource(),
+    KulturhusetSource(),
     CapitolSource(),
     BioRioSource(),
     TellusSource(),
