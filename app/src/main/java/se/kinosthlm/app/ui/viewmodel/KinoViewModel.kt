@@ -278,7 +278,15 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
         },
         combine(repository.needingReview, repository.reviewCandidates) { review, candidates ->
           val byItem = candidates.groupBy { it.watchlistItemId }
-          Review(review.map { ReviewEntry(it, byItem[it.id].orEmpty()) })
+          // Only entries we can actually offer a choice for. A CSV import flags same-named rows
+          // for review the moment it lands, before anything has been looked up — so the banner
+          // used to appear with nothing behind it, and tapping Review showed an empty sheet.
+          // They come back on their own once identification has fetched the candidates.
+          Review(
+            review
+              .map { ReviewEntry(it, byItem[it.id].orEmpty()) }
+              .filter { it.candidates.isNotEmpty() || it.item.titleType == WatchlistItem.TYPE_SERIES }
+          )
         },
       ) { content, prefs, transient, review ->
         val byMovie = content.screenings.groupBy { it.watchlistMovieId }
@@ -519,6 +527,14 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
    * The user said no. Alerts goes off and stays off — leaving the switch on would promise
    * notifications the system will never deliver, and it is the switch, not us, that asks again.
    */
+  /** Android will not show its dialog any more, so the switch cannot turn itself on. */
+  fun onNotificationPermissionUnavailable() {
+    viewModelScope.launch {
+      settings.setNotificationsEnabled(false)
+      message.value = "Turn notifications on for KinoSthlm in Android settings."
+    }
+  }
+
   fun onNotificationPermissionDenied() {
     viewModelScope.launch {
       if (settings.notificationsEnabled.first()) {
@@ -973,5 +989,8 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
       year = year,
       titleType = type,
       posterUrl = posterUrl,
+      // Was dropped here, which is why a film resolved from a pasted link showed "No description
+      // available" while the same film picked from the candidate list had one.
+      overview = overview,
     )
 }

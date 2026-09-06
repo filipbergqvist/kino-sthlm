@@ -23,6 +23,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import se.kinosthlm.app.data.model.Cinema
+import se.kinosthlm.app.data.source.CinemaSourceRegistry
 import se.kinosthlm.app.ui.viewmodel.UiState
 
 /** Which venues to follow. Everything here is one toggle; disabled cinemas are never polled. */
@@ -133,16 +134,27 @@ private fun CinemaCard(
       ) {
         // State the truth about this venue rather than a generic "connected" badge.
         //
-        // Both numbers, because they answer different questions. "No matches right now" is an
-        // ordinary week and says nothing about whether we can still read the programme; "0 found"
-        // at a cinema that plainly has one is a broken adapter. Only showing the match count hid
-        // exactly that difference — which is how Bio Capitol looked fine while returning titles
-        // nothing could ever match.
+        // Two numbers where we have them, because they answer different questions. "No matches
+        // right now" is an ordinary week and says nothing about whether we can still read the
+        // programme; "0 found" at a cinema that plainly has one is a broken adapter. Only showing
+        // the match count hid exactly that difference — which is how Bio Capitol looked healthy
+        // while returning titles nothing could ever match.
+        //
+        // But only where both numbers mean something. A source that asks the venue about your
+        // films specifically never sees the rest of the programme, so its "found" *is* its
+        // "matched" — and reporting that as a fault put a red warning on eleven healthy cinemas.
+        val narrows = CinemaSourceRegistry[cinema.sourceId]?.narrowsByWatchlist ?: false
         val status =
           when {
             !cinema.isEnabled -> "Not followed"
             error != null -> "Last sync failed: $error"
             cinema.lastPolledAt == 0L -> "Not synced yet"
+            narrows ->
+              if (cinema.upcomingScreeningsCount > 0) {
+                "${cinema.upcomingScreeningsCount} screening(s) from your list"
+              } else {
+                "None of your films are on here right now"
+              }
             cinema.lastSeenScreeningsCount == 0 -> "0 screenings found — check this cinema"
             cinema.upcomingScreeningsCount > 0 ->
               "${cinema.upcomingScreeningsCount} of ${cinema.lastSeenScreeningsCount} " +
@@ -154,7 +166,8 @@ private fun CinemaCard(
           style = MaterialTheme.typography.bodySmall,
           color =
             if (cinema.isEnabled &&
-              (error != null || (cinema.lastPolledAt > 0L && cinema.lastSeenScreeningsCount == 0))
+              (error != null ||
+                (!narrows && cinema.lastPolledAt > 0L && cinema.lastSeenScreeningsCount == 0))
             ) {
               MaterialTheme.colorScheme.error
             } else {

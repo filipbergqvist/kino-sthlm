@@ -27,6 +27,9 @@ class FilmstadenSource(private val baseUrl: String = BASE) : CinemaSource {
   override val id = SOURCE_ID
   override val label = "Filmstaden m.fl."
 
+  /** Asks the API about the watchlist films directly, so an empty result means "none of yours". */
+  override val narrowsByWatchlist = true
+
   override suspend fun fetchScreenings(
     cinemas: List<Cinema>,
     watchlist: List<WatchlistItem>,

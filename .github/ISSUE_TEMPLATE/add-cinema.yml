@@ -1,0 +1,46 @@
+name: Add a cinema
+description: Suggest a cinema KinoSthlm should watch.
+labels: ["enhancement", "cinema"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Every cinema needs its own small adapter, because none of them publish their programme
+        the same way. The links below are what makes that possible — without a page that lists
+        showings with dates, there is nothing to read.
+
+  - type: input
+    id: name
+    attributes:
+      label: Cinema name
+      placeholder: Bio Fågel Blå
+    validations:
+      required: true
+
+  - type: input
+    id: programme
+    attributes:
+      label: Link to its programme or calendar
+      description: The page that lists what is on and when.
+      placeholder: https://biofagelbla.se/program/
+    validations:
+      required: true
+
+  - type: input
+    id: booking
+    attributes:
+      label: Link to its ticketing, if separate
+      description: Tickster, Nortic, its own booking system — whatever you use to buy a ticket.
+    validations:
+      required: false
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything odd about how it lists films?
+      description: >
+        Strand names in titles ("Frukostbio: …"), directors appended, a "show more" button that
+        hides later dates, non-film events mixed in. All of that has to be handled, so knowing
+        about it up front helps.
+    validations:
+      required: false

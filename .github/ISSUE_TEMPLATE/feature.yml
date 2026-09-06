@@ -1,0 +1,20 @@
+name: Feature suggestion
+description: An idea for something the app should do.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like the app to do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: What are you trying to achieve?
+      description: >
+        The problem behind the idea, if there is one. It often turns out there is a simpler way
+        to solve it than the feature first imagined.
+    validations:
+      required: false

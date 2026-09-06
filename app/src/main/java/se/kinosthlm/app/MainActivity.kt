@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings as AndroidSettings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -139,18 +140,43 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
     }
   }
 
-  /** Turning Alerts on has to come with the permission, or it switches itself straight back off. */
+  /**
+   * Turning Alerts on always asks for the permission if we do not have it.
+   *
+   * Android stops showing its own dialog after two refusals, and silently doing nothing then
+   * leaves the switch as the only thing that moved — you flick it on, nothing happens, and there
+   * is no way to find out why. So when the system will no longer ask, send the user to the
+   * notification settings for this app, where they actually can say yes.
+   */
   val setNotifications: (Boolean) -> Unit = { wanted ->
-    val needsPermission =
-      wanted &&
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+    val granted =
+      Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
           PackageManager.PERMISSION_GRANTED
-    if (needsPermission) {
-      viewModel.markNotificationPermissionAsked()
-      notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+
+    when {
+      !wanted || granted -> viewModel.setNotificationsEnabled(wanted)
+
+      // The system will still show its dialog: let it.
+      (context as? ComponentActivity)?.shouldShowRequestPermissionRationale(
+        Manifest.permission.POST_NOTIFICATIONS
+      ) != false -> {
+        viewModel.markNotificationPermissionAsked()
+        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+      }
+
+      // It will not. Open the app's notification settings instead of flicking a switch that
+      // cannot do anything.
+      else -> {
+        viewModel.onNotificationPermissionUnavailable()
+        runCatching {
+          context.startActivity(
+            Intent(AndroidSettings.ACTION_APP_NOTIFICATION_SETTINGS)
+              .putExtra(AndroidSettings.EXTRA_APP_PACKAGE, context.packageName)
+          )
+        }
+      }
     }
-    viewModel.setNotificationsEnabled(wanted)
   }
 
   // CSV import via the system file picker — no storage permission needed.

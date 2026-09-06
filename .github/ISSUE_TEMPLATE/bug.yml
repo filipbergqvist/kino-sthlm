@@ -1,0 +1,67 @@
+name: Bug report
+description: Something in the app does not work the way it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. The most useful thing you can give us is the difference
+        between what happened and what you expected — that gap is usually the bug.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      placeholder: The Cinemas tab shows "0 screenings found" for Bio Rio.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+      placeholder: Bio Rio has a full programme on its website, so I expected screenings.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: What you did, in order. "It just happens" is fine if it does.
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: Settings → About, or the release you installed.
+      placeholder: v1.0.10
+    validations:
+      required: false
+
+  - type: input
+    id: device
+    attributes:
+      label: Phone and Android version
+      placeholder: Pixel 7, Android 15
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log output
+      description: >
+        Optional, and only if you are comfortable getting it. With the phone plugged in and USB
+        debugging on, `adb logcat -d -s KinoRepository:* TitleResolver:* TraktProvider:* SyncWorker:*`
+        prints this app's own log lines. Have a quick read before pasting — it should contain
+        nothing personal beyond film titles, but it is your paste.
+      render: text
+    validations:
+      required: false

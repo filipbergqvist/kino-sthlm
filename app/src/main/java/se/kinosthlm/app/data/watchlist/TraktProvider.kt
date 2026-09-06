@@ -187,7 +187,8 @@ class TraktProvider(
 
     val entries = JSONArray(json)
     return (0 until entries.length()).mapNotNull { index ->
-      val movie = entries.optJSONObject(index)?.optJSONObject("movie") ?: return@mapNotNull null
+      val entry = entries.optJSONObject(index)
+      val movie = entry?.optJSONObject("movie") ?: return@mapNotNull null
       val title = movie.optString("title").takeIf { it.isNotBlank() } ?: return@mapNotNull null
       val year = movie.optInt("year").takeIf { it > 0 }
       val ids = movie.optJSONObject("ids")
@@ -203,9 +204,18 @@ class TraktProvider(
         imdbId = imdbId,
         tmdbId = tmdbId,
         traktId = ids?.optInt("trakt")?.takeIf { it > 0 },
+        // When *you* added it to Trakt, not when we happened to read it. Falling back to "now"
+        // meant every sync restamped the whole list, so "Recently added" reshuffled itself each
+        // time even though nothing had changed.
+        addedAt = listedAt(entry) ?: System.currentTimeMillis(),
       )
     }
   }
+
+  /** Trakt's `listed_at`, ISO 8601, or null if this entry has none. */
+  private fun listedAt(entry: JSONObject?): Long? =
+    entry?.optString("listed_at")?.takeIf { it.isNotBlank() }
+      ?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() }
 
   /** Refresh the access token before it expires, so a background sync never fails on staleness. */
   private fun validAccessToken(): String? {

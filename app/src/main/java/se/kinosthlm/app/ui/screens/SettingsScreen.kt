@@ -12,17 +12,22 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,11 +45,14 @@ import se.kinosthlm.app.ui.viewmodel.SyncCadence
 import se.kinosthlm.app.ui.viewmodel.TraktState
 import se.kinosthlm.app.ui.viewmodel.UiState
 
+/** The public repository. Everything user-facing that points at GitHub starts here. */
+private const val REPO_URL = "https://github.com/filipbergqvist/kino-sthlm"
+
 /** Where bug reports and feature requests go. Public, so nothing needs an account to read. */
-private const val ISSUES_URL = "https://github.com/filipbergqvist/kino-sthlm/issues"
+private const val ISSUES_URL = "$REPO_URL/issues"
 
 /** Sources, schedule and alerts. */
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
   uiState: UiState,
@@ -69,6 +77,19 @@ fun SettingsScreen(
   onOpenUrl: (String) -> Unit,
   modifier: Modifier = Modifier,
 ) {
+  var showTimePicker by remember { mutableStateOf(false) }
+
+  if (showTimePicker) {
+    SyncTimePickerDialog(
+      initialHour = uiState.syncHourOfDay,
+      onDismiss = { showTimePicker = false },
+      onConfirm = {
+        onSetSyncHour(it)
+        showTimePicker = false
+      },
+    )
+  }
+
   LazyColumn(
     modifier.fillMaxWidth(),
     contentPadding = PaddingValues(16.dp),
@@ -153,83 +174,14 @@ fun SettingsScreen(
         SettingRow("Paste a list", "For a watchlist kept somewhere with no export") {
           TextButton(onClick = onBatchAdd, modifier = Modifier.testTag("batch_add")) { Text("Paste") }
         }
-        SettingRow("KinoSthlm backup", "A CSV this app exported, from any device") {
-          TextButton(onClick = onImportBackup, modifier = Modifier.testTag("import_backup")) {
-            Text("Import")
-          }
-        }
       }
     }
 
     item {
       Section("Sync") {
-        SettingRow("Background sync", "Check cinemas automatically") {
-          Switch(
-            checked = uiState.autoSyncEnabled,
-            onCheckedChange = onSetAutoSync,
-            modifier = Modifier.testTag("toggle_auto_sync"),
-          )
-        }
-        if (uiState.autoSyncEnabled) {
-          // Cinema programmes change once a day at most, so the options start at daily. The old
-          // three- and six-hourly choices only re-read the same pages, which is why they came
-          // with a note asking people to be considerate — better to make the choices themselves
-          // considerate than to ask.
-          Text("How often", style = MaterialTheme.typography.bodyMedium)
-          val cadence = SyncCadence.of(uiState.syncIntervalHours)
-          FlowRow(
-            Modifier.fillMaxWidth().padding(vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-          ) {
-            for (option in SyncCadence.entries) {
-              FilterChip(
-                selected = cadence == option,
-                onClick = { onSetInterval(option.hours) },
-                label = { Text(option.label) },
-                modifier = Modifier.testTag("cadence_${option.name}"),
-              )
-            }
-          }
-
-          Text("Around what time", style = MaterialTheme.typography.bodyMedium)
-          FlowRow(
-            Modifier.fillMaxWidth().padding(vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-          ) {
-            for (hour in listOf(4, 8, 12, 18, 22)) {
-              FilterChip(
-                selected = uiState.syncHourOfDay == hour,
-                onClick = { onSetSyncHour(hour) },
-                label = { Text("%02d:00".format(hour)) },
-                modifier = Modifier.testTag("sync_hour_$hour"),
-              )
-            }
-          }
-          Text(
-            "Android decides the exact moment — it will wait for a network and may hold off " +
-              "while the phone is asleep.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-          )
-        }
-        // Repertory cinemas post months ahead; too short a window silently hides exactly the
-        // one-off screenings worth knowing about early.
-        Text("How far ahead to look", style = MaterialTheme.typography.bodyMedium)
-        Row(
-          Modifier.padding(vertical = 4.dp),
-          horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-          for (days in listOf(21L, 30L, 60L, 90L)) {
-            FilterChip(
-              selected = uiState.horizonDays == days,
-              onClick = { onSetHorizon(days) },
-              label = { Text("${days}d") },
-              modifier = Modifier.testTag("horizon_$days"),
-            )
-          }
-        }
+        // Ordered the way you read it: what happened, what we look for, how to do it now, and
+        // only then the automatic schedule. "How far ahead to look" applies to every sync, manual
+        // included, which is why it sat oddly above a toggle it does not belong to.
         Text(
           if (uiState.lastSyncAt > 0L) {
             "Last sync ${NotificationHelper.formatTime(uiState.lastSyncAt)} — " +
@@ -240,6 +192,29 @@ fun SettingsScreen(
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+
+        // Repertory cinemas post months ahead; too short a window silently hides exactly the
+        // one-off screenings worth knowing about early.
+        Text(
+          "How far ahead to look",
+          style = MaterialTheme.typography.bodyMedium,
+          modifier = Modifier.padding(top = 12.dp),
+        )
+        FlowRow(
+          Modifier.fillMaxWidth().padding(vertical = 4.dp),
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
+          verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+          for (days in listOf(21L, 30L, 60L, 90L)) {
+            FilterChip(
+              selected = uiState.horizonDays == days,
+              onClick = { onSetHorizon(days) },
+              label = { Text("${days}d") },
+              modifier = Modifier.testTag("horizon_$days"),
+            )
+          }
+        }
+
         Row(
           Modifier.padding(top = 8.dp),
           horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -283,6 +258,56 @@ fun SettingsScreen(
             modifier = Modifier.padding(top = 8.dp).testTag("tmdb_not_configured"),
           )
         }
+
+        HorizontalDivider(Modifier.padding(top = 16.dp, bottom = 8.dp))
+
+        SettingRow("Background sync", "Check cinemas automatically") {
+          Switch(
+            checked = uiState.autoSyncEnabled,
+            onCheckedChange = onSetAutoSync,
+            modifier = Modifier.testTag("toggle_auto_sync"),
+          )
+        }
+        if (uiState.autoSyncEnabled) {
+          // Indented, so it reads as belonging to the switch above rather than as two more
+          // settings of its own — which is what made "How far ahead to look" look like part of
+          // the schedule when it applies to every sync.
+          Column(Modifier.padding(start = 16.dp)) {
+            // Cinema programmes change once a day at most, so the options start at daily. The
+            // old three- and six-hourly choices only re-read the same pages, which is why they
+            // came with a note asking people to be considerate — better to make the choices
+            // themselves considerate than to ask.
+            Text("How often", style = MaterialTheme.typography.bodyMedium)
+            val cadence = SyncCadence.of(uiState.syncIntervalHours)
+            FlowRow(
+              Modifier.fillMaxWidth().padding(vertical = 4.dp),
+              horizontalArrangement = Arrangement.spacedBy(8.dp),
+              verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+              for (option in SyncCadence.entries) {
+                FilterChip(
+                  selected = cadence == option,
+                  onClick = { onSetInterval(option.hours) },
+                  label = { Text(option.label) },
+                  modifier = Modifier.testTag("cadence_${option.name}"),
+                )
+              }
+            }
+
+            SettingRow(
+              "Around what time",
+              "%02d:00 — Android may hold off until the phone is awake and online"
+                .format(uiState.syncHourOfDay),
+            ) {
+              TextButton(
+                onClick = { showTimePicker = true },
+                modifier = Modifier.testTag("pick_sync_hour"),
+              ) {
+                Text("%02d:00".format(uiState.syncHourOfDay))
+              }
+            }
+          }
+        }
       }
     }
 
@@ -323,18 +348,29 @@ fun SettingsScreen(
     // Last thing before About: exporting is what you do once, when leaving or backing up, not
     // something to scroll past every time you come here to change a setting.
     item {
-      Section("Export") {
+      // Backups, not sources. Restoring your own file is not connecting a watchlist provider —
+      // nothing keeps it up to date afterwards — so it belongs beside the export that produced
+      // it rather than among Trakt and IMDb.
+      Section("Backups") {
         Text(
           "Write your watchlist out as a CSV, ready to import into Trakt — or back into " +
             "KinoSthlm on another device.",
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        OutlinedButton(
-          onClick = onExportCsv,
-          modifier = Modifier.padding(top = 8.dp).testTag("export_csv"),
+        Row(
+          Modifier.padding(top = 8.dp),
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-          Text("Export CSV")
+          OutlinedButton(onClick = onExportCsv, modifier = Modifier.testTag("export_csv")) {
+            Text("Export CSV")
+          }
+          OutlinedButton(
+            onClick = onImportBackup,
+            modifier = Modifier.testTag("import_backup"),
+          ) {
+            Text("Restore a backup")
+          }
         }
       }
     }
@@ -346,22 +382,39 @@ fun SettingsScreen(
       Section("Feedback") {
         Text(
           "Found a bug, or want something added? The issue tracker is the place — it is public, " +
-            "so you can see what is already known.",
+            "so you can see what is already known. Each button opens a template with the " +
+            "questions worth answering.",
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(
+          Modifier.fillMaxWidth().padding(top = 8.dp),
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
+          verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
           OutlinedButton(
-            onClick = { onOpenUrl("$ISSUES_URL/new?labels=bug") },
+            onClick = { onOpenUrl("$ISSUES_URL/new?template=bug.yml") },
             modifier = Modifier.testTag("report_bug"),
           ) {
             Text("Report a bug")
           }
           OutlinedButton(
-            onClick = { onOpenUrl("$ISSUES_URL/new?labels=enhancement") },
+            onClick = { onOpenUrl("$ISSUES_URL/new?template=feature.yml") },
             modifier = Modifier.testTag("request_feature"),
           ) {
-            Text("Request a feature")
+            Text("Suggest a feature")
+          }
+          OutlinedButton(
+            onClick = { onOpenUrl("$ISSUES_URL/new?template=add-cinema.yml") },
+            modifier = Modifier.testTag("add_cinema_request"),
+          ) {
+            Text("Add a cinema")
+          }
+          OutlinedButton(
+            onClick = { onOpenUrl("$ISSUES_URL/new?template=add-provider.yml") },
+            modifier = Modifier.testTag("add_provider_request"),
+          ) {
+            Text("Add a watchlist")
           }
         }
         TextButton(onClick = { onOpenUrl(ISSUES_URL) }) { Text("Browse open issues") }
@@ -376,6 +429,47 @@ fun SettingsScreen(
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+
+        Text(
+          "Open source under the MIT licence.",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+          modifier = Modifier.padding(top = 8.dp),
+        )
+
+        Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+          OutlinedButton(
+            onClick = { onOpenUrl(REPO_URL) },
+            modifier = Modifier.testTag("open_github"),
+          ) {
+            Text("View on GitHub")
+          }
+          OutlinedButton(onClick = { onOpenUrl("$REPO_URL/blob/master/LICENSE") }) {
+            Text("MIT licence")
+          }
+        }
+
+        // Attribution the licences actually ask for. TMDB's terms require the acknowledgement
+        // in so many words; the rest are Apache 2.0 or MIT and ask only that they are named.
+        Text(
+          "Film data and posters from TMDB. This product uses the TMDB API but is not endorsed " +
+            "or certified by TMDB. Watchlist syncing uses the Trakt API. Screenings come from " +
+            "each cinema's own website or booking system.",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+          modifier = Modifier.padding(top = 12.dp),
+        )
+        Text(
+          "Built with Jetpack Compose, Room and WorkManager (Apache 2.0), OkHttp and Moshi " +
+            "(Apache 2.0), Jsoup (MIT) and Coil (Apache 2.0).",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+          modifier = Modifier.padding(top = 8.dp),
+        )
+        Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+          TextButton(onClick = { onOpenUrl("https://www.themoviedb.org/") }) { Text("TMDB") }
+          TextButton(onClick = { onOpenUrl("https://trakt.tv/") }) { Text("Trakt") }
+        }
       }
     }
   }
@@ -438,6 +532,36 @@ private fun TmdbKeySection(uiState: UiState, onSetKey: (String) -> Unit, onOpenU
       }
     }
   }
+}
+
+/**
+ * Android's own clock picker for the sync hour.
+ *
+ * A row of five preset chips was quicker to build and worse to use: the whole point of choosing
+ * a time is that yours is not one of five. Minutes are deliberately discarded — WorkManager
+ * treats the hour as a target it may miss by a long way, so offering minute precision would
+ * promise something the platform cannot keep.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SyncTimePickerDialog(
+  initialHour: Int,
+  onDismiss: () -> Unit,
+  onConfirm: (Int) -> Unit,
+) {
+  val state = rememberTimePickerState(initialHour = initialHour, initialMinute = 0, is24Hour = true)
+
+  AlertDialog(
+    onDismissRequest = onDismiss,
+    title = { Text("Sync around") },
+    text = { TimePicker(state = state, modifier = Modifier.testTag("sync_time_picker")) },
+    confirmButton = {
+      TextButton(onClick = { onConfirm(state.hour) }, modifier = Modifier.testTag("confirm_time")) {
+        Text("Set")
+      }
+    },
+    dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+  )
 }
 
 @Composable

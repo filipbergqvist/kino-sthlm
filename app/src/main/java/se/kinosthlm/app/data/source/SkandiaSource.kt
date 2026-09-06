@@ -28,6 +28,9 @@ class SkandiaSource(private val indexUrl: String = INDEX) : CinemaSource {
   override val id = SOURCE_ID
   override val label = "Bio Skandia"
 
+  /** Matches the index against the watchlist before fetching, so empty means "none of yours". */
+  override val narrowsByWatchlist = true
+
   override suspend fun fetchScreenings(
     cinemas: List<Cinema>,
     watchlist: List<WatchlistItem>,

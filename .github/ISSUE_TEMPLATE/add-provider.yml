@@ -1,0 +1,44 @@
+name: Add a watchlist provider
+description: Suggest another place KinoSthlm should read your watchlist from.
+labels: ["enhancement", "watchlist"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The app has no server and no accounts, so a provider has to work from the phone alone:
+        either a documented API the app can talk to directly, or a file you can export.
+
+  - type: input
+    id: service
+    attributes:
+      label: Which service?
+      placeholder: Letterboxd
+    validations:
+      required: true
+
+  - type: dropdown
+    id: access
+    attributes:
+      label: How can a watchlist be got out of it?
+      options:
+        - It has a public API
+        - It can export a file (CSV or similar)
+        - There is a public list page
+        - I am not sure
+    validations:
+      required: true
+
+  - type: input
+    id: docs
+    attributes:
+      label: Link to its API docs or export page
+    validations:
+      required: false
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else worth knowing?
+      description: Whether it needs a login, whether the export carries IMDb or TMDB ids, and so on.
+    validations:
+      required: false

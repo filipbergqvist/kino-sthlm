@@ -110,8 +110,8 @@ class SettingsStore(private val context: Context) {
      */
     const val DEFAULT_INTERVAL_HOURS = 24L
 
-    /** 04:00 — after the cinemas have published the next day, before anyone is awake. */
-    const val DEFAULT_SYNC_HOUR = 4
+    /** 20:00 — evening, when a phone is usually on wi-fi and awake enough for WorkManager. */
+    const val DEFAULT_SYNC_HOUR = 20
 
     /**
      * Two months. Three weeks was the old default, from when every source only published a short

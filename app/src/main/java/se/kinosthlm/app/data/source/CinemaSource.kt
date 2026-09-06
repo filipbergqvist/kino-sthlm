@@ -27,6 +27,18 @@ interface CinemaSource {
   val label: String
 
   /**
+   * True when this source narrows by the watchlist *before* fetching, so what it returns is
+   * already only the films you care about.
+   *
+   * It changes what "0 screenings" means. A source that hands back a whole programme returning
+   * nothing is broken; one that asks the venue about your films specifically and gets nothing
+   * back is simply telling you none of them is on. Reporting the second as a fault put a red
+   * warning on eleven perfectly healthy cinemas.
+   */
+  val narrowsByWatchlist: Boolean
+    get() = false
+
+  /**
    * Fetch every screening at [cinemas] between [from] and [to].
    *
    * [watchlist] is passed so a source can narrow its queries — the Filmstaden API, for example,
