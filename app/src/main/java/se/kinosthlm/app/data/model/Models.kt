@@ -71,6 +71,7 @@ data class WatchlistItem(
     const val SOURCE_TRAKT = "trakt"
     const val SOURCE_IMDB = "imdb"
     const val SOURCE_GOOGLE_TV = "google_tv"
+    const val SOURCE_LETTERBOXD = "letterboxd"
     const val SOURCE_MANUAL = "manual"
 
     const val TYPE_MOVIE = "movie"

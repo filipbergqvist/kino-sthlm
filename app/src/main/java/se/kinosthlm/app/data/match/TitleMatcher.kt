@@ -98,6 +98,10 @@ object TitleMatcher {
       .replace('ø', 'o')
       .replace('æ', 'a')
       .replace('ß', 's')
+      .replace('ł', 'l')
+      .replace('đ', 'd')
+      .replace('ð', 'd')
+      .replace('þ', 't')
     val rawWords = folded
       .replace(Regex("[^a-z0-9]+"), " ")
       .trim()
@@ -133,6 +137,13 @@ object TitleMatcher {
       .replace('ø', 'o')
       .replace('æ', 'a')
       .replace('ß', 's')
+      // Stroked letters survive NFD decomposition — "ł" is one code point, not l plus a mark —
+      // so they have to be spelled out. Without this "Człowiek z marmuru" and the ASCII
+      // "Czlowiek z marmuru" a cinema actually prints are two different titles.
+      .replace('ł', 'l')
+      .replace('đ', 'd')
+      .replace('ð', 'd')
+      .replace('þ', 't')
       .replace(Regex("[^a-z0-9]+"), " ")
       .trim()
 

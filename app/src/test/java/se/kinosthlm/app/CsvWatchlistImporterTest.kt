@@ -31,6 +31,29 @@ class CsvWatchlistImporterTest {
   }
 
   @Test
+  fun `reads a letterboxd watchlist export`() {
+    // Letterboxd's own header, from Settings › Data › Export. No new parser: "Name" and "Year"
+    // are aliases the importer already knew, and the URI column is a Letterboxd slug rather than
+    // an id anything else can use, so it is correctly left alone.
+    val csv =
+      """
+      Date,Name,Year,Letterboxd URI
+      2026-08-14,Nosferatu,1922,https://boxd.it/1MHy
+      2026-08-15,Salò, or the 120 Days of Sodom,1976,https://boxd.it/29Ba
+      """
+        .trimIndent()
+
+    val items = parse(csv, WatchlistItem.SOURCE_LETTERBOXD)
+    assertEquals(2, items.size)
+    assertEquals("Nosferatu", items[0].title)
+    assertEquals(1922, items[0].year)
+    // An unquoted comma inside a Letterboxd title splits the row, so the year lands a column
+    // late — the parser must not then read the URL as the title.
+    assertTrue(items[1].title.startsWith("Salò"))
+    assertTrue(items.none { it.title.startsWith("http") })
+  }
+
+  @Test
   fun `takes imdb's word for it that a series is not a film`() {
     // A real IMDb watchlist is full of series; believing the Title Type column keeps them out of
     // the list, out of the review queue, and off TMDB entirely.

@@ -189,6 +189,7 @@ fun sourceLabel(source: String): String =
     WatchlistItem.SOURCE_TRAKT -> "Trakt"
     WatchlistItem.SOURCE_IMDB -> "IMDb"
     WatchlistItem.SOURCE_GOOGLE_TV -> "Google TV"
+    WatchlistItem.SOURCE_LETTERBOXD -> "Letterboxd"
     WatchlistItem.SOURCE_MANUAL -> "Manual Add"
     else -> source
   }

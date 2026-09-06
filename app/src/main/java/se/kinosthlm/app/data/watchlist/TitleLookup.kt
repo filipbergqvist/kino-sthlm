@@ -136,6 +136,16 @@ class TitleLookup(
     val exact = all.filter { it.isNamed(wanted) }
     if (exact.isNotEmpty()) return@withContext Result(exact, matchedByAlias = false)
 
+    // Two ways a cinema writes a title that is the film's, only not letter for letter: it drops
+    // the article ("Rocky Horror Picture Show") or adds the series it belongs to ("Indiana
+    // Jones: Raiders of the Lost Ark"). Both are safe to allow because what remains still has to
+    // match a real title exactly — unlike a substring rule, which is how "Alien" ends up meaning
+    // "Alien: Romulus".
+    for (relaxed in relaxations(query)) {
+      val hits = all.filter { it.isNamed(relaxed) }
+      if (hits.isNotEmpty()) return@withContext Result(hits, matchedByAlias = false)
+    }
+
     // Nothing TMDB *displays* is called this. It may still be the film's name in some country —
     // "Xiao Wu" is how China lists 小武 — so ask, rather than assume.
     //
@@ -156,6 +166,27 @@ class TitleLookup(
       all.filter { TitleMatcher.normalizeStrict(it.title) == verifiedTitle },
       matchedByAlias = true,
     )
+  }
+
+  /**
+   * Strict-normalised readings of [query] beyond the literal one, most likely first.
+   *
+   * Only two, and both keep the whole of what is left: an article added at the front, and a
+   * series label cut from it. Nothing here shortens a title to a fragment.
+   */
+  private fun relaxations(query: String): List<String> = buildList {
+    val strict = TitleMatcher.normalizeStrict(query)
+    if (strict.isBlank()) return@buildList
+    // "Rocky Horror Picture Show" is listed by TMDB as "The Rocky Horror Picture Show".
+    if (LEADING_ARTICLES.none { strict.startsWith("$it ") }) {
+      LEADING_ARTICLES.forEach { add("$it $strict") }
+    }
+    // "Indiana Jones: Raiders of the Lost Ark" — the cinema names the series, TMDB names the
+    // film. Only when what follows is substantial, so ": Romulus" can never become the title.
+    val afterLabel = query.substringAfter(':', "").trim()
+    if (afterLabel.length >= 8 && query.substringBefore(':').isNotBlank()) {
+      add(TitleMatcher.normalizeStrict(afterLabel))
+    }
   }
 
   /**
@@ -389,6 +420,9 @@ class TitleLookup(
 
     /** The language Stockholm cinemas publish in, and so the one to ask TMDB in first. */
     private const val SWEDISH = "sv-SE"
+
+    /** Articles a cinema may drop from the front of a title, in the languages we see. */
+    private val LEADING_ARTICLES = listOf("the", "a", "an", "den", "det", "en", "ett", "les", "la", "le")
 
     /**
      * How many top films to ask for alternative titles before giving up.

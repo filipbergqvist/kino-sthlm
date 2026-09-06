@@ -11,6 +11,9 @@ import se.kinosthlm.app.data.model.WatchlistItem
  *  - **IMDb** — "Your Watchlist" > Export. Columns include `Const` (the tt id), `Title`, `Year`.
  *  - **Google TV** — via Google Takeout. Column names vary by locale and export vintage, so we
  *    match on a set of known aliases and fall back to the first column.
+ *  - **Letterboxd** — Settings › Data › Export, `watchlist.csv` inside the zip. Its header is
+ *    `Date,Name,Year,Letterboxd URI`, which the same aliases already cover; the URI column is
+ *    ignored because it carries a Letterboxd slug rather than a TMDB or IMDb id.
  *
  * This is a file import rather than a live sync because IMDb retired its RSS feeds and its export
  * endpoint requires a logged-in session; there is no unattended path left.

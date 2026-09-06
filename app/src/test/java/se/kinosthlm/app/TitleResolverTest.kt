@@ -541,6 +541,44 @@ class TitleResolverTest {
   }
 
   @Test
+  fun `a dropped article and an added series label both still resolve`() = runTest {
+    // The two ways a cinema writes a title that is the film's, only not letter for letter.
+    // Allowed because what remains has to match a real title in full — not a substring rule.
+    val rocky = serverReturning { search(Triple(36685, "The Rocky Horror Picture Show", 1975)) }
+    try {
+      assertEquals(36685, lookupAgainst(rocky).resolveBestMatch("Rocky Horror Picture Show")?.tmdbId)
+    } finally {
+      rocky.shutdown()
+    }
+
+    val raiders = serverReturning { search(Triple(85, "Raiders of the Lost Ark", 1981)) }
+    try {
+      val candidate =
+        lookupAgainst(raiders).resolveBestMatch("Indiana Jones: Raiders of the Lost Ark")
+      assertEquals(85, candidate?.tmdbId)
+    } finally {
+      raiders.shutdown()
+    }
+  }
+
+  @Test
+  fun `a series label is never allowed to shorten a title to its subtitle`() = runTest {
+    // The rule this codebase already learned the hard way: "Alien" must not mean "Alien:
+    // Romulus", and the reverse must not happen either.
+    val server = serverReturning { path ->
+      when {
+        path.contains("alternative_titles") -> """{"titles":[]}"""
+        else -> search(Triple(945961, "Alien", 1979))
+      }
+    }
+    try {
+      assertNull(lookupAgainst(server).resolveBestMatch("Alien: Romulus"))
+    } finally {
+      server.shutdown()
+    }
+  }
+
+  @Test
   fun `a crowded title is found by the year the cinema published`() = runTest {
     // Multi-search has no year filter, so "House" comes back as twenty namesakes and a page of
     // television, and Hausu is nowhere on it. The film endpoint does take a year.

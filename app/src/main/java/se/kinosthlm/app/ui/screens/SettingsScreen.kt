@@ -62,6 +62,7 @@ fun SettingsScreen(
   onDisconnectTrakt: () -> Unit,
   onImportImdbCsv: () -> Unit,
   onImportGoogleTvCsv: () -> Unit,
+  onImportLetterboxdCsv: () -> Unit,
   onImportImdbList: () -> Unit,
   onBatchAdd: () -> Unit,
   onImportBackup: () -> Unit,
@@ -171,6 +172,16 @@ fun SettingsScreen(
         }
         SettingRow("Google TV", "Import a Google Takeout CSV") {
           TextButton(onClick = onImportGoogleTvCsv) { Text("Import") }
+        }
+        // Letterboxd's own API would sync this, but it is gated behind an approval Letterboxd
+        // grants case by case, and has no device-code flow — so the export is the honest offer.
+        SettingRow("Letterboxd", "Import watchlist.csv from Settings › Data › Export") {
+          TextButton(
+            onClick = onImportLetterboxdCsv,
+            modifier = Modifier.testTag("import_letterboxd"),
+          ) {
+            Text("Import")
+          }
         }
         SettingRow("Paste a list", "For a watchlist kept somewhere with no export") {
           TextButton(onClick = onBatchAdd, modifier = Modifier.testTag("batch_add")) { Text("Paste") }

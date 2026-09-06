@@ -149,6 +149,13 @@ object ProgrammeStrands {
           """\s*[-–—]\s*med\s+panelsamtal\s*$""",
         RegexOption.IGNORE_CASE,
       ),
+      // "Gazelle + Q&A with Nadir Sarıbacak", "Persona + samtal med regissören". The guest is
+      // the draw, but the film is what it is, and a name TMDB has never heard of on the end
+      // means neither reaches the app.
+      Regex(
+        """\s*[+&]\s*(?:q\s*&\s*a|samtal|panelsamtal|introduktion|inledning|regiss[oö]rsbesök)\b.*$""",
+        RegexOption.IGNORE_CASE,
+      ),
       Regex("""\s*\(?\s*\d{1,2}\s*[aå]r\s*\)?\s*!*\s*$""", RegexOption.IGNORE_CASE),
       Regex("""\s*\d{1,2}\s*(?:$MONTHS)[a-zäöå]*\.?\s*!*\s*$""", RegexOption.IGNORE_CASE),
     )

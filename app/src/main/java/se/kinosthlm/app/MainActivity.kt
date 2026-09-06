@@ -347,6 +347,10 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
               pendingCsvSource = WatchlistItem.SOURCE_GOOGLE_TV
               pickCsv.launch(CSV_MIME_TYPES)
             },
+            onImportLetterboxdCsv = {
+              pendingCsvSource = WatchlistItem.SOURCE_LETTERBOXD
+              pickCsv.launch(CSV_MIME_TYPES)
+            },
             onImportImdbList = { showImdbListDialog = true },
             onImportBackup = { pickBackup.launch(CSV_MIME_TYPES) },
             onBatchAdd = { showBatchAddDialog = true },
