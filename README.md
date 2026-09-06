@@ -14,20 +14,22 @@ pull to refresh.
 
 ## What it does
 
-- **Syncs your watchlist** from Trakt (automatically, in the background), from an IMDb / Google TV
-  CSV export, or from a pasted list of names. Films remember which lists they came from, so
+- **Syncs your watchlist** from Trakt (automatically, in the background), from an IMDb, Google TV
+  or Letterboxd CSV export, or from a pasted list of names. Films remember which lists they came from, so
   removing one upstream removes it here — and a film on two lists survives being dropped from one.
 - **Identifies bare titles** via TMDB: which year, which of two same-named films, and whether it
   is a TV series (Google TV exports mix those in). Every import is identified straight away, which
   is also what merges the same film arriving from two different lists into a single entry.
 - **Checks Stockholm cinemas** for anything on that list — 14 venues on the Filmstaden booking
-  platform plus four independents, each one individually switchable. Two months ahead by
-  default, since the independents post their repertory programme that far out; adjustable in
-  Settings.
+  platform plus twelve independents, each one individually switchable: Bio Skandia, Bio Capitol,
+  Bio Rio, Biocafé Tellus, Bio Fågel Blå, Bio Kaskad, Zita Folkets Bio, Cinemateket's two
+  auditoria, and Kulturhuset Stadsteatern's Klarabiografen, Skärisbiografen and Bio Husby. Two
+  months ahead by default, since the independents post their repertory programme that far out;
+  adjustable in Settings.
 - **Notifies you about the right venue** — cinemas are tagged (Big Screen, Cozy, IMAX, Food &
   Drink) and a film can require one, so a blockbuster only pings you for a big screen and a
   classic only for a small independent.
-- **Narrows the list** by source (Trakt, IMDb, Google TV, added by hand) and by genre, on top of
+- **Narrows the list** by source (Trakt, IMDb, Google TV, Letterboxd, added by hand) and by genre, on top of
   search, sorting and a "showing soon" filter.
 - **Shows you the film** — tap a watchlist entry for its poster, synopsis, an IMDb link and which
   lists it came from. Removing it lives here too, as a deliberate second step rather than a
@@ -120,12 +122,17 @@ Trakt is the only source that can refresh on its own, and it needs a free app re
 
 Each person using the app does step 4 with their own Trakt account. Steps 1–3 are yours alone.
 
-### IMDb and Google TV
+### IMDb, Google TV and Letterboxd
 
 IMDb retired its RSS feeds and its export endpoint needs a logged-in session, so there is no
 unattended path. Use **Your Watchlist → Export** on IMDb, then **Settings → IMDb → Import** and
 pick the CSV. There is also a best-effort reader for a *public* IMDb list, but IMDb can block or
 reshape it at any time — the CSV is the dependable route.
+
+Letterboxd is **Settings → Data → Export your data**, which gives a zip; `watchlist.csv` inside
+it goes to **Settings → Letterboxd → Import**. Its API is not an option here: third-party access
+is granted case by case on application, and the flows on offer need a redirect URI and a client
+secret rather than a device code, which is not something a sideloaded open-source app can ship.
 
 Google TV goes through [Google Takeout](https://takeout.google.com) (`Saved → Watchlist.csv`).
 That export is thin: `Title,Note,URL,Tags,Comment`, where the URL column is a placeholder on

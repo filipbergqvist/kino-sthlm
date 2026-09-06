@@ -14,8 +14,11 @@ android {
     applicationId = "se.kinosthlm.app"
     minSdk = 26
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    // Kept in step with the release tag by hand. The APK on the Releases page is named after
+    // the tag, so these were easy to forget — and they are what Android itself reports, which
+    // is what an installed build says it is when someone files a bug against it.
+    versionCode = 12
+    versionName = "1.2.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
