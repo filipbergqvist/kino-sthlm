@@ -160,6 +160,48 @@ object ProgrammeStrands {
       "live performance",
     )
 
+  /**
+   * Words that make a trailing comma-clause part of the title rather than a director credit.
+   *
+   * "Salò, eller Sodoms 120 dagar" and "Vem är rädd, Virginia Woolf?" both end in a comma clause
+   * and neither is a director. A person's name has no connectives in it, so their presence is
+   * the tell.
+   */
+  private val NOT_A_NAME =
+    setOf(
+      "eller", "och", "the", "a", "an", "of", "in", "on", "at", "to", "med", "om", "en", "ett",
+      "den", "det", "de", "der", "die", "das", "le", "la", "les", "el", "il",
+    )
+
+  /** "Spike", "Kar-wai", "O'Brien" — a capitalised word that could be part of a name. */
+  private val NAME_WORD = Regex("""\p{Lu}[\p{L}'’-]*""")
+
+  /** "G." or "A.E." — initials, which are the one place a full stop belongs in a name. */
+  private val INITIALS = Regex("""(?:\p{Lu}\.){1,3}""")
+
+  /**
+   * Drop a director credit appended after a comma: "Mina drömmars stad, Ingvar Skogsberg".
+   *
+   * Cinemateket writes every listing this way, and TMDB has never heard of a film by that name.
+   * Deliberately cautious — the clause has to look like a person, meaning one to four words that
+   * all start with a capital and none of which is a connective. Anything else is left alone,
+   * because wrongly truncating a title is worse than failing to strip a credit.
+   */
+  fun stripTrailingDirector(title: String): String {
+    val comma = title.lastIndexOf(',')
+    if (comma <= 0) return title
+
+    val tail = title.substring(comma + 1).trim()
+    val words = tail.split(Regex("\\s+")).filter { it.isNotEmpty() }
+    if (words.isEmpty() || words.size > 4) return title
+    if (words.any { fold(it) in NOT_A_NAME }) return title
+    // Every word has to read as part of a person's name — either a name word or initials like
+    // "G." and "A.E.". Anything else ("m.fl.", "Woolf?") means this is title, not credit.
+    if (words.any { !NAME_WORD.matches(it) && !INITIALS.matches(it) }) return title
+
+    return title.substring(0, comma).trim().ifBlank { title }
+  }
+
   /** True when a calendar entry is an event the cinema is hosting, not a film it is showing. */
   fun isNonFilmEvent(title: String): Boolean {
     val folded = fold(title)

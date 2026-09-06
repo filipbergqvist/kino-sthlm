@@ -16,9 +16,13 @@ import se.kinosthlm.app.data.model.WatchlistItem
 import se.kinosthlm.app.data.model.WatchlistSource
 import se.kinosthlm.app.data.source.BioRioSource
 import se.kinosthlm.app.data.source.CapitolSource
+import se.kinosthlm.app.data.source.CinemateketSource
+import se.kinosthlm.app.data.source.FagelBlaSource
 import se.kinosthlm.app.data.source.FilmstadenSource
+import se.kinosthlm.app.data.source.KaskadSource
 import se.kinosthlm.app.data.source.SkandiaSource
 import se.kinosthlm.app.data.source.TellusSource
+import se.kinosthlm.app.data.source.ZitaSource
 
 @Database(
   entities = [
@@ -150,6 +154,61 @@ abstract class AppDatabase : RoomDatabase() {
           sourceId = BioRioSource.SOURCE_ID,
           specialty = "Independent Hornstull cinema with a full restaurant and bar",
           tags = "${Cinema.TAG_COZY},${Cinema.TAG_FOOD_DRINK}",
+        ),
+        Cinema(
+          id = FagelBlaSource.SOURCE_ID,
+          name = "Bio Fågel Blå",
+          district = "Södermalm",
+          address = "Rökerigatan 19",
+          websiteUrl = "https://biofagelbla.se",
+          sourceId = FagelBlaSource.SOURCE_ID,
+          specialty = "Neighbourhood cinema on Södermalm; arthouse and repertory",
+          tags = Cinema.TAG_COZY,
+        ),
+        Cinema(
+          id = KaskadSource.SOURCE_ID,
+          name = "Bio Kaskad",
+          district = "Blackeberg",
+          address = "Blackebergs torg",
+          websiteUrl = "https://www.biokaskad.se",
+          sourceId = KaskadSource.SOURCE_ID,
+          specialty = "Local cinema in Blackeberg",
+          tags = Cinema.TAG_COZY,
+        ),
+        Cinema(
+          id = ZitaSource.SOURCE_ID,
+          name = "Zita Folkets Bio",
+          district = "Östermalm",
+          address = "Birger Jarlsgatan 37",
+          websiteUrl = "https://zita.se",
+          sourceId = ZitaSource.SOURCE_ID,
+          specialty = "Arthouse and world cinema, with its own film series",
+          tags = "${Cinema.TAG_COZY},${Cinema.TAG_FOOD_DRINK}",
+        ),
+        // Cinemateket runs two auditoria out of one programme, so they are two venues sharing a
+        // source. remoteId is the hall name its booking links use, which is how a showing is
+        // routed to the right one.
+        Cinema(
+          id = "cinemateket_victor",
+          name = "Cinemateket — Bio Victor",
+          district = "Gärdet",
+          address = "Filmhuset, Borgvägen 1",
+          websiteUrl = "https://www.filminstitutet.se/cinemateket",
+          sourceId = CinemateketSource.SOURCE_ID,
+          remoteId = "Victor",
+          specialty = "The Swedish Film Institute's repertory programme; the larger auditorium",
+          tags = Cinema.TAG_COZY,
+        ),
+        Cinema(
+          id = "cinemateket_mauritz",
+          name = "Cinemateket — Bio Mauritz",
+          district = "Gärdet",
+          address = "Filmhuset, Borgvägen 1",
+          websiteUrl = "https://www.filminstitutet.se/cinemateket",
+          sourceId = CinemateketSource.SOURCE_ID,
+          remoteId = "Mauritz",
+          specialty = "The Swedish Film Institute's smaller auditorium",
+          tags = Cinema.TAG_COZY,
         ),
         Cinema(
           id = TellusSource.SOURCE_ID,

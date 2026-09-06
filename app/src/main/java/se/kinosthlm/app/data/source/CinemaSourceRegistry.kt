@@ -13,6 +13,10 @@ object CinemaSourceRegistry {
     CapitolSource(),
     BioRioSource(),
     TellusSource(),
+    FagelBlaSource(),
+    KaskadSource(),
+    ZitaSource(),
+    CinemateketSource(),
   )
 
   private val byId: Map<String, CinemaSource> = all.associateBy { it.id }
