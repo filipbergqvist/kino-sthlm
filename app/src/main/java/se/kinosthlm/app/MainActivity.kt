@@ -447,7 +447,6 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
       notificationsEnabled = uiState.notificationsEnabled,
       onOpenImdb = openUrl,
       onRemove = { viewModel.removeFilm(it) },
-      onTogglePin = { id, pinned -> viewModel.togglePin(id, pinned) },
       onToggleMute = { id, muted -> viewModel.toggleMute(id, muted) },
       onSetRequiredVenueTag = { id, tag -> viewModel.setRequiredVenueTag(id, tag) },
       onDismiss = { detailEntryId = null },

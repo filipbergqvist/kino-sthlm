@@ -179,35 +179,25 @@ class WatchlistProvenanceTest {
       assertTrue(!hidden.isMatchable)
     }
 
-  // --- Pinning ---
+  // --- Removal ---
 
   @Test
-  fun `pinning protects a film after its only real source drops it`() = runTest {
+  fun `a film loses its place as soon as its last real source drops it`() = runTest {
+    // What the pin used to override. It was withdrawn as confusing, so this is once again the
+    // only rule: the watchlist is exactly what your connected lists say it is.
     dao.replaceSource(WatchlistItem.SOURCE_TRAKT, listOf(film("a", "Metropolis")))
-    dao.setPinned("a", true)
 
     dao.replaceSource(WatchlistItem.SOURCE_TRAKT, emptyList())
-
-    assertEquals(listOf("a"), dao.getAll().map { it.id })
-  }
-
-  @Test
-  fun `unpinning a film with no other source deletes it immediately`() = runTest {
-    dao.replaceSource(WatchlistItem.SOURCE_TRAKT, listOf(film("a", "Metropolis")))
-    dao.setPinned("a", true)
-    dao.replaceSource(WatchlistItem.SOURCE_TRAKT, emptyList())
-
-    dao.setPinned("a", false)
 
     assertTrue(dao.getAll().isEmpty())
   }
 
   @Test
-  fun `unpinning a film that a real source still lists keeps it`() = runTest {
+  fun `a film another list still claims survives one source dropping it`() = runTest {
     dao.replaceSource(WatchlistItem.SOURCE_TRAKT, listOf(film("a", "Metropolis")))
-    dao.setPinned("a", true)
+    dao.replaceSource(WatchlistItem.SOURCE_IMDB, listOf(film("a", "Metropolis")))
 
-    dao.setPinned("a", false)
+    dao.replaceSource(WatchlistItem.SOURCE_TRAKT, emptyList())
 
     assertEquals(listOf("a"), dao.getAll().map { it.id })
   }

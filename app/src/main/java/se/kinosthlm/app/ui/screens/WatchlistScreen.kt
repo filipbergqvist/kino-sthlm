@@ -26,7 +26,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.NotificationsOff
-import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AssistChip
@@ -502,14 +501,6 @@ private fun WatchlistCardContent(
               fontWeight = FontWeight.SemiBold,
               modifier = Modifier.weight(1f, fill = false),
             )
-            if (entry.isPinned) {
-              Icon(
-                Icons.Default.PushPin,
-                contentDescription = "Pinned",
-                modifier = Modifier.padding(start = 6.dp).size(14.dp),
-                tint = MaterialTheme.colorScheme.primary,
-              )
-            }
             if (entry.isMuted) {
               Icon(
                 Icons.Default.NotificationsOff,

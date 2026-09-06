@@ -145,9 +145,7 @@ interface WatchlistDao {
     // nothing for a tombstone to defend against — delete it properly rather than leaving an
     // invisible row behind for every hand-added film the user changes their mind about.
     val claims = sourcesFor(itemId).map { it.sourceId }
-    val onlyOurs =
-      claims.all { it == WatchlistItem.SOURCE_MANUAL || it == WatchlistItem.SOURCE_PINNED }
-    if (onlyOurs) {
+    if (claims.all { it == WatchlistItem.SOURCE_MANUAL }) {
       deleteSourceRowsFor(itemId)
       deleteById(itemId)
       return
@@ -156,24 +154,6 @@ interface WatchlistDao {
   }
 
   @Query("DELETE FROM watchlist_items") suspend fun clear()
-
-  /**
-   * Protect or unprotect an entry from automatic removal.
-   *
-   * Pinning just adds a [WatchlistItem.SOURCE_PINNED] provenance row — the same mechanism real
-   * sources use — so a pinned film survives even after every list that actually contributed it
-   * drops it. Unpinning removes only that row and re-runs orphan cleanup, so a film with no real
-   * source left is deleted the moment its pin is lifted rather than lingering until the next sync.
-   */
-  @Transaction
-  suspend fun setPinned(itemId: String, pinned: Boolean) {
-    if (pinned) {
-      insertSources(listOf(WatchlistSource(itemId, WatchlistItem.SOURCE_PINNED)))
-    } else {
-      deleteSourceRow(itemId, WatchlistItem.SOURCE_PINNED)
-      deleteOrphans()
-    }
-  }
 
   @Query("UPDATE watchlist_items SET notificationsMuted = :muted WHERE id = :itemId")
   suspend fun setMuted(itemId: String, muted: Boolean)

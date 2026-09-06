@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
@@ -487,18 +488,31 @@ private fun TmdbKeySection(uiState: UiState, onSetKey: (String) -> Unit, onOpenU
   Section("TMDB") {
     var draft by remember(uiState.tmdbKey) { mutableStateOf(uiState.tmdbKey) }
 
-    Text(
-      if (uiState.tmdbKey.isNotBlank()) {
-        "Using your own key."
-      } else if (uiState.tmdbConfigured) {
-        "Using this build's shared key. Paste your own to spend your own quota instead."
-      } else {
-        "This build has no key of its own. Paste one to enable posters, descriptions, title " +
-          "identification and manual add."
-      },
-      style = MaterialTheme.typography.bodySmall,
-      color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      Text(
+        if (uiState.tmdbKey.isNotBlank()) {
+          "Using your own key."
+        } else if (uiState.tmdbConfigured) {
+          // Named for what it costs rather than what it is: everyone on this build shares one
+          // rate limit, so the reason to paste your own is that it stops you throttling each
+          // other, not that a key is missing.
+          "You are currently using a shared TMDB access key. This can lead to throttling. For " +
+            "better performance for you and your peers, consider providing your own API key here."
+        } else {
+          "This build has no key of its own. Paste one to enable posters, descriptions, title " +
+            "identification and manual add."
+        },
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.weight(1f),
+      )
+      IconButton(
+        onClick = { onOpenUrl("https://developer.themoviedb.org/docs/getting-started") },
+        modifier = Modifier.testTag("tmdb_key_help"),
+      ) {
+        Icon(Icons.Outlined.Info, contentDescription = "How to get a TMDB API key")
+      }
+    }
 
     OutlinedTextField(
       value = draft,

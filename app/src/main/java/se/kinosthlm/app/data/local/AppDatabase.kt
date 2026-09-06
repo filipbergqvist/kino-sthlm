@@ -34,7 +34,7 @@ import se.kinosthlm.app.data.source.ZitaSource
     WatchlistSource::class,
     ScreeningTitleCache::class,
   ],
-  version = 10,
+  version = 11,
   exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -81,6 +81,27 @@ abstract class AppDatabase : RoomDatabase() {
         }
       }
 
+    /**
+     * Clear out the withdrawn pin feature.
+     *
+     * A pin was a provenance row like any other, so leaving those rows behind would keep a film
+     * alive with a claim nothing in the app can explain or lift any more — the entry would sit
+     * there permanently with no visible reason and no way to remove it. Dropping the rows first
+     * and then any entry left with no source at all puts the watchlist back to exactly what its
+     * real sources say.
+     */
+    private val MIGRATION_10_11 =
+      object : Migration(10, 11) {
+        override fun migrate(connection: SQLiteConnection) {
+          connection.execSQL("DELETE FROM watchlist_sources WHERE sourceId = 'pinned'")
+          // The same cleanup the DAO runs after any source drops a claim. Hand-added films keep
+          // a 'manual' row of their own, so they are not touched.
+          connection.execSQL(
+            "DELETE FROM watchlist_items WHERE id NOT IN (SELECT itemId FROM watchlist_sources)"
+          )
+        }
+      }
+
     fun getDatabase(context: Context): AppDatabase =
       INSTANCE
         ?: synchronized(this) {
@@ -90,7 +111,7 @@ abstract class AppDatabase : RoomDatabase() {
                 AppDatabase::class.java,
                 "kinosthlm.db",
               )
-              .addMigrations(MIGRATION_8_9, MIGRATION_9_10)
+              .addMigrations(MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
               // Still the fallback for the older pre-release versions, which have no migration
               // path written for them. The cinema list re-seeds and screenings re-fetch, so the
               // only real cost is a watchlist re-import.

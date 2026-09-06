@@ -323,13 +323,6 @@ private constructor(
       database.titleCandidateDao().deleteFor(id)
     }
 
-  /**
-   * Protect a film against disappearing when its real sources later drop it, or lift that
-   * protection. See [se.kinosthlm.app.data.local.WatchlistDao.setPinned].
-   */
-  suspend fun setPinned(itemId: String, pinned: Boolean) =
-    withContext(Dispatchers.IO) { database.watchlistDao().setPinned(itemId, pinned) }
-
   /** Keep matching and showing this film, but never push a notification for it. */
   suspend fun setNotificationsMuted(itemId: String, muted: Boolean) =
     withContext(Dispatchers.IO) { database.watchlistDao().setMuted(itemId, muted) }

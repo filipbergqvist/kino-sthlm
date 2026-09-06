@@ -19,8 +19,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.outlined.Notifications
-import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -60,7 +58,6 @@ fun WatchlistDetailDialog(
   notificationsEnabled: Boolean,
   onOpenImdb: (String) -> Unit,
   onRemove: (String) -> Unit,
-  onTogglePin: (String, Boolean) -> Unit,
   onToggleMute: (String, Boolean) -> Unit,
   onSetRequiredVenueTag: (String, String?) -> Unit,
   onDismiss: () -> Unit,
@@ -121,19 +118,6 @@ fun WatchlistDetailDialog(
                 modifier = Modifier.size(20.dp),
                 tint =
                   if (entry.isMuted) MaterialTheme.colorScheme.error
-                  else MaterialTheme.colorScheme.onSurfaceVariant,
-              )
-            }
-            IconButton(
-              onClick = { onTogglePin(item.id, !entry.isPinned) },
-              modifier = Modifier.size(36.dp).testTag("toggle_pin_${item.id}"),
-            ) {
-              Icon(
-                if (entry.isPinned) Icons.Default.PushPin else Icons.Outlined.PushPin,
-                contentDescription = if (entry.isPinned) "Unpin" else "Pin so it stays even if removed upstream",
-                modifier = Modifier.size(20.dp),
-                tint =
-                  if (entry.isPinned) MaterialTheme.colorScheme.primary
                   else MaterialTheme.colorScheme.onSurfaceVariant,
               )
             }

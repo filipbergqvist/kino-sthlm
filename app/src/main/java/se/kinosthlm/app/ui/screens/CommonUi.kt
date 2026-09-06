@@ -190,7 +190,6 @@ fun sourceLabel(source: String): String =
     WatchlistItem.SOURCE_IMDB -> "IMDb"
     WatchlistItem.SOURCE_GOOGLE_TV -> "Google TV"
     WatchlistItem.SOURCE_MANUAL -> "Manual Add"
-    WatchlistItem.SOURCE_PINNED -> "Pinned"
     else -> source
   }
 
@@ -199,27 +198,19 @@ fun sourceLabel(source: String): String =
  * plainly-sourced film with no year prints its source as a [SourceTags] chip instead.
  */
 fun watchlistDescriptor(item: WatchlistItem, sources: List<String>): String? {
-  val hasRealSource = sources.any { it != WatchlistItem.SOURCE_PINNED }
-  val fallback =
-    when {
-      hasRealSource -> null
-      WatchlistItem.SOURCE_PINNED in sources -> "Pinned"
-      else -> "Manual Add"
-    }
+  val fallback = if (sources.isEmpty()) "Manual Add" else null
   return listOfNotNull(item.year?.toString(), fallback).joinToString(" · ").ifBlank { null }
 }
 
 /**
  * A film's provenance as small bordered tags — "the sources as small bordered text tags on each
- * watchlist entry" the board asked for, rather than plain comma-joined text. [SOURCE_PINNED] is
- * deliberately excluded: it is surfaced as its own pin toggle, not listed as a source here.
+ * watchlist entry" the board asked for, rather than plain comma-joined text.
  */
 @Composable
 fun SourceTags(sources: List<String>, modifier: Modifier = Modifier) {
-  val real = sources.filter { it != WatchlistItem.SOURCE_PINNED }
-  if (real.isEmpty()) return
+  if (sources.isEmpty()) return
   Row(modifier, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-    for (source in real) {
+    for (source in sources) {
       Text(
         sourceLabel(source),
         style = MaterialTheme.typography.labelSmall,

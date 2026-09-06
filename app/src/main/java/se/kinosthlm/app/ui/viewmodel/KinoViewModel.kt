@@ -33,13 +33,6 @@ data class WatchlistEntry(
 ) {
   val nextScreening: Screening? get() = screenings.minByOrNull { it.screeningTime }
 
-  /** Protected from disappearing if its real sources later drop it. */
-  val isPinned: Boolean get() = WatchlistItem.SOURCE_PINNED in sources
-
-  /** Actual watchlists this came from; a pin is protection, not provenance. */
-  val realSources: List<String>
-    get() = sources.filter { it != WatchlistItem.SOURCE_PINNED }
-
   /** Still matched and shown, but never pushes a notification. */
   val isMuted: Boolean get() = item.notificationsMuted
 }
@@ -334,7 +327,7 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
                   val matches =
                     filters.sources.any { source ->
                       source in entry.sources ||
-                        (source == WatchlistItem.SOURCE_MANUAL && entry.realSources.isEmpty())
+                        (source == WatchlistItem.SOURCE_MANUAL && entry.sources.isEmpty())
                     }
                   if (!matches) return@filter false
                 }
@@ -401,10 +394,8 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
             buildSet {
                 for (entry in matchable) {
                   val rows = sourcesByItem[entry.id].orEmpty().map { it.sourceId }
-                  addAll(rows.filter { it != WatchlistItem.SOURCE_PINNED })
-                  if (rows.none { it != WatchlistItem.SOURCE_PINNED }) {
-                    add(WatchlistItem.SOURCE_MANUAL)
-                  }
+                  addAll(rows)
+                  if (rows.isEmpty()) add(WatchlistItem.SOURCE_MANUAL)
                 }
               }
               .sorted(),
@@ -713,14 +704,6 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
     viewModelScope.launch {
       repository.removeItem(id)
       message.value = "Removed. Delete it from the source list too, or it will return."
-    }
-  }
-
-  /** Protect a film from disappearing when its real sources later drop it, or lift that. */
-  fun togglePin(itemId: String, pinned: Boolean) {
-    viewModelScope.launch {
-      repository.setPinned(itemId, pinned)
-      message.value = if (pinned) "Pinned — it will stay even if its source removes it" else "Unpinned"
     }
   }
 
