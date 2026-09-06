@@ -17,8 +17,13 @@ android {
     // Kept in step with the release tag by hand. The APK on the Releases page is named after
     // the tag, so these were easy to forget — and they are what Android itself reports, which
     // is what an installed build says it is when someone files a bug against it.
-    versionCode = 12
-    versionName = "1.2.0"
+    //
+    // The patch number moves on every release and nothing else does: 1.0.x until the app is
+    // solid, 1.1.0 when it is and the map work starts, 1.2.0 once the map is actually in.
+    // Semver would call new cinemas a minor bump; here the number tracks the roadmap instead,
+    // so it says how far along the app is rather than how large the last diff was.
+    versionCode = 13
+    versionName = "1.0.12"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
