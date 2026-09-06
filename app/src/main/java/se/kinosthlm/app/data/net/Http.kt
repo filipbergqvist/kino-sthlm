@@ -3,6 +3,9 @@ package se.kinosthlm.app.data.net
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import java.util.concurrent.TimeUnit
+import okhttp3.Cookie
+import okhttp3.CookieJar
+import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
@@ -25,6 +28,33 @@ object Http {
       .build()
   }
 
+  /**
+   * The same client, but it keeps cookies for the life of the process.
+   *
+   * Tickster hands out a session cookie and then bounces anyone who arrives without one to a
+   * "session timed out" page — which answers **200**, so a cookie-less fetch does not fail, it
+   * succeeds and parses to nothing. That is the silent-empty failure this codebase exists to
+   * avoid, and no amount of parsing care fixes it.
+   *
+   * Kept separate from [client] rather than made the default so cookies only ever go to the one
+   * source that needs them. In memory only: nothing is written to disk and it is gone when the
+   * app is.
+   */
+  val sessionClient: OkHttpClient by lazy {
+    client.newBuilder().cookieJar(InMemoryCookieJar()).build()
+  }
+
+  private class InMemoryCookieJar : CookieJar {
+    private val byHost = java.util.concurrent.ConcurrentHashMap<String, List<Cookie>>()
+
+    override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
+      byHost[url.host] = cookies
+    }
+
+    override fun loadForRequest(url: HttpUrl): List<Cookie> =
+      byHost[url.host]?.filter { it.expiresAt > System.currentTimeMillis() }.orEmpty()
+  }
+
   val moshi: Moshi by lazy { Moshi.Builder().add(KotlinJsonAdapterFactory()).build() }
 
   fun request(url: String, accept: String = "application/json"): Request =
@@ -45,8 +75,14 @@ object Http {
   class HttpStatusException(val code: Int, url: String) :
     java.io.IOException("HTTP $code for $url")
 
-  fun getString(url: String, accept: String = "application/json"): String {
-    client.newCall(request(url, accept)).execute().use { response ->
+  fun getString(
+    url: String,
+    accept: String = "application/json",
+    /** Use [sessionClient], for a site that will not serve anyone without a session cookie. */
+    withCookies: Boolean = false,
+  ): String {
+    val http = if (withCookies) sessionClient else client
+    http.newCall(request(url, accept)).execute().use { response ->
       val body = response.body?.string().orEmpty()
       if (!response.isSuccessful) {
         throw HttpStatusException(response.code, url)

@@ -131,9 +131,30 @@ class ProgrammeStrandsTest {
     // Secret cinema has no title to match on by design.
     assertTrue(ProgrammeStrands.isNonFilmEvent("Förstadens filmsalong"))
     assertTrue(ProgrammeStrands.isNonFilmEvent("Secret Cinema"))
+    // Skandia's stage nights, and the auditorium hired out privately.
+    assertTrue(ProgrammeStrands.isNonFilmEvent("Masood Boomgaard (live)"))
+    assertTrue(ProgrammeStrands.isNonFilmEvent("ABONNERAT FÖR SLUTET SÄLLSKAP"))
     // And these are films, however much they sound like an evening out.
     assertFalse(ProgrammeStrands.isNonFilmEvent("Frukost med Alzheimer"))
     assertFalse(ProgrammeStrands.isNonFilmEvent("La Grazia"))
+  }
+
+  @Test
+  fun `strips presentation notes that carry no brackets`() {
+    // Bio Rio writes them as plain text, so the bracket rules never saw them and the film went
+    // looking for something called "The Odyssey 35mm - otextad".
+    assertEquals("The Odyssey", clean("The Odyssey 35mm - otextad"))
+    assertEquals("Nosferatu", clean("Nosferatu, restaurerad"))
+    assertTrue(ProgrammeStrands.clean("The Odyssey 35mm - otextad").formats.contains("35mm"))
+  }
+
+  @Test
+  fun `a bracketed cut is a note, not the film's original title`() {
+    // Read as an original title, "Extended Cut" became a search of its own — which TMDB answers
+    // with an unrelated film rather than nothing.
+    val cleaned = ProgrammeStrands.clean("Psycho (Extended Cut)")
+    assertEquals("Psycho", cleaned.title)
+    assertEquals(null, cleaned.originalTitle)
   }
 
   @Test

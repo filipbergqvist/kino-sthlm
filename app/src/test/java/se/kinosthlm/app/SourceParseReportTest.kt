@@ -18,6 +18,7 @@ import se.kinosthlm.app.data.source.CinemateketSource
 import se.kinosthlm.app.data.source.FagelBlaSource
 import se.kinosthlm.app.data.source.KaskadSource
 import se.kinosthlm.app.data.source.RawScreening
+import se.kinosthlm.app.data.source.SkandiaSource
 import se.kinosthlm.app.data.source.TellusSource
 import se.kinosthlm.app.data.source.ZitaSource
 import se.kinosthlm.app.data.watchlist.TitleLookup
@@ -47,9 +48,10 @@ class SourceParseReportTest {
   /**
    * Everything printed, kept so it can be written to a file as well as the console.
    *
-   * The file is the point of this in CI: Actions logs and artifacts both need authentication to
-   * read, so a report that only reaches the console is one nobody can be pointed at afterwards.
-   * Committed back to the repository, it can just be read.
+   * The file is what CI publishes: it goes into the run summary, which renders on the run page
+   * with no download and no digging through a log, and is kept as an artifact besides. It is not
+   * committed — it changes every day, says nothing about the state of the code, and would bury
+   * real history under noise.
    */
   private val lines = mutableListOf<String>()
 
@@ -123,6 +125,7 @@ class SourceParseReportTest {
         Triple("Bio Fågel Blå", FagelBlaSource(), listOf(venue("bio_fagel_bla", "Bio Fågel Blå", FagelBlaSource()))),
         Triple("Bio Kaskad", KaskadSource(), listOf(venue("bio_kaskad", "Bio Kaskad", KaskadSource()))),
         Triple("Zita Folkets Bio", ZitaSource(), listOf(venue("zita", "Zita Folkets Bio", ZitaSource()))),
+        Triple("Bio Skandia", SkandiaSource(), listOf(venue("bio_skandia", "Bio Skandia", SkandiaSource()))),
         Triple(
           "Cinemateket",
           CinemateketSource(),

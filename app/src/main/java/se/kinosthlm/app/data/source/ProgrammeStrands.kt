@@ -45,7 +45,29 @@ object ProgrammeStrands {
    * title and exactly what TMDB indexes it under, so it is worth keeping; "70MM" is a projector.
    */
   private val FORMAT_NOTES =
-    setOf("70mm", "35mm", "16mm", "4k", "2k", "dcp", "3d", "imax", "70 mm", "35 mm", "digitalt", "analogt")
+    setOf(
+      "70mm", "35mm", "16mm", "4k", "2k", "dcp", "3d", "imax", "70 mm", "35 mm", "digitalt",
+      "analogt",
+      // Which cut, and whether it is subtitled: presentation, not identity. Left in, they turn
+      // "Psycho (Extended Cut)" into a search for a film called "Extended Cut" — which TMDB
+      // answers, wrongly.
+      "extended cut", "directors cut", "director's cut", "final cut", "restaurerad",
+      "otextad", "textad", "svensk text", "engelsk text", "svensktextad", "engelsktextad",
+      "svenskt tal", "originalspraak", "originalsprak",
+    )
+
+  /**
+   * The same notes written without brackets: "The Odyssey 35mm - otextad".
+   *
+   * Anchored to the end and taken one at a time, so a title that genuinely ends in a number is
+   * untouched and only the trailing furniture comes off.
+   */
+  private val TRAILING_FORMAT_NOTE =
+    Regex(
+      """\s*[-–—,]?\s*(?:\d{1,2}\s?mm|4k|2k|dcp|imax|otextad|textad|svensktextad|engelsktextad|""" +
+        """restaurerad|digitalt|analogt|svensk\s+text|engelsk\s+text|svenskt\s+tal)\s*$""",
+      RegexOption.IGNORE_CASE,
+    )
 
   /**
    * Programme-strand labels that precede the film's name. Compared accent-folded and lowercase,
@@ -158,6 +180,12 @@ object ProgrammeStrands {
       "vernissage",
       "konsert",
       "live performance",
+      // The auditorium hired out: "ABONNERAT FÖR SLUTET SÄLLSKAP". Whatever is being shown, it
+      // is not open to anyone reading this app.
+      "abonnerat",
+      "slutet sallskap",
+      // Skandia tags its stage nights this way: "Masood Boomgaard (live)", "Blackout (live)".
+      "(live)",
     )
 
   /**
@@ -246,6 +274,18 @@ object ProgrammeStrands {
     var year: Int? = null
     var originalTitle: String? = null
     val formats = mutableListOf<String>()
+
+    // Unbracketed presentation notes, which Bio Rio writes as plain text: "The Odyssey 35mm -
+    // otextad". Repeated, because they come in runs.
+    while (true) {
+      val match = TRAILING_FORMAT_NOTE.find(result) ?: break
+      val note = match.value.trim(' ', '-', '–', '—', ',')
+      // Keep the projector format as a tag; "otextad" is a subtitling note, not a format.
+      if (fold(note) in FORMAT_NOTES) formats += note
+      val without = result.removeRange(match.range).trim()
+      if (without.isBlank()) break
+      result = without
+    }
 
     TRAILING_YEAR.find(result)?.let { match ->
       val parsed = match.groupValues[1].toIntOrNull()?.takeIf { it in 1880..2100 }

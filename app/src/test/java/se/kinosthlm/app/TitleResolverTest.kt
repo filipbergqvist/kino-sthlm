@@ -477,6 +477,92 @@ class TitleResolverTest {
     assertNull(details)
   }
 
+  // --- Identifying a Swedish listing: the three ways this used to go wrong ---
+
+  @Test
+  fun `a swedish release title resolves through the swedish search`() = runTest {
+    // TMDB knows "Queen Christina" perfectly well and lists "Drottning Kristina" as its Swedish
+    // title — but only *displays* that name when asked in Swedish. Unlocalised, the answer comes
+    // back called something the cinema never said, fails the identity check, and the film is
+    // reported as not found. Every Stockholm cinema lists in Swedish, so this was a whole class.
+    val server = serverReturning { path ->
+      if (path.contains("language=sv-SE")) search(Triple(1, "Drottning Kristina", 1934))
+      else search(Triple(1, "Queen Christina", 1934))
+    }
+    try {
+      val candidate = lookupAgainst(server).resolveBestMatch("Drottning Kristina")
+
+      assertNotNull("the Swedish title should have identified the film", candidate)
+      assertEquals(1, candidate!!.tmdbId)
+    } finally {
+      server.shutdown()
+    }
+  }
+
+  @Test
+  fun `an unrecognised title is left unresolved rather than given TMDB's most popular guess`() =
+    runTest {
+      // TMDB ranks partial matches by popularity, so a title it does not have still comes back
+      // with a confident-looking first result. Trusting that turned "Autofiktion" into "Bitter
+      // Christmas" — and a wrong film on your schedule is worse than a missing one, because
+      // nothing about it looks wrong until you turn up at the cinema.
+      val server = serverReturning { path ->
+        when {
+          path.contains("alternative_titles") -> """{"titles":[{"iso_3166_1":"US","title":"Yuletide"}]}"""
+          else -> search(Triple(99, "Bitter Christmas", 2026))
+        }
+      }
+      try {
+        assertNull(lookupAgainst(server).resolveBestMatch("Autofiktion"))
+      } finally {
+        server.shutdown()
+      }
+    }
+
+  @Test
+  fun `a foreign release title still resolves when TMDB confirms it`() = runTest {
+    // The other side of that: "Xiao Wu" is genuinely how China lists 小武, so rejecting every
+    // name TMDB does not display would throw away real matches. The difference is evidence —
+    // ask for the film's alternative titles instead of assuming.
+    val server = serverReturning { path ->
+      when {
+        path.contains("alternative_titles") -> """{"titles":[{"iso_3166_1":"CN","title":"Xiao Wu"}]}"""
+        else -> search(Triple(42, "小武", 1997))
+      }
+    }
+    try {
+      val candidate = lookupAgainst(server).resolveBestMatch("Xiao Wu")
+
+      assertNotNull(candidate)
+      assertEquals(42, candidate!!.tmdbId)
+    } finally {
+      server.shutdown()
+    }
+  }
+
+  @Test
+  fun `a crowded title is found by the year the cinema published`() = runTest {
+    // Multi-search has no year filter, so "House" comes back as twenty namesakes and a page of
+    // television, and Hausu is nowhere on it. The film endpoint does take a year.
+    val server = serverReturning { path ->
+      when {
+        path.contains("/search/movie") && path.contains("year=1977") ->
+          """{"page":1,"results":[{"id":4262,"title":"House","original_title":"ハウス","release_date":"1977-07-30"}]}"""
+        path.contains("alternative_titles") -> """{"titles":[]}"""
+        else -> search(Triple(7, "House Party", 1990))
+      }
+    }
+    try {
+      val candidate = lookupAgainst(server).resolveBestMatch("House", year = 1977)
+
+      assertNotNull("the year should have reached past the namesakes", candidate)
+      assertEquals(4262, candidate!!.tmdbId)
+      assertEquals("ハウス", candidate.originalTitle)
+    } finally {
+      server.shutdown()
+    }
+  }
+
   @Test
   fun `an unresolved entry is never matched against cinema listings`() {
     val pending = item("Nosferatu")

@@ -5,31 +5,30 @@ import java.time.LocalDate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jsoup.Jsoup
-import org.jsoup.nodes.Element
-import se.kinosthlm.app.data.match.MatchCandidate
-import se.kinosthlm.app.data.match.TitleMatcher
 import se.kinosthlm.app.data.model.Cinema
 import se.kinosthlm.app.data.model.WatchlistItem
 import se.kinosthlm.app.data.net.Http
 
 /**
- * Bio Skandia, Drottninggatan.
+ * Bio Skandia, Drottninggatan — read from its ticketing system rather than its website.
  *
- * The programme is split across one page per film, so we fetch the (short) index of what is
- * currently showing, match those titles against the watchlist first, and only then fetch detail
- * pages — normally none or one, rather than every film on the schedule.
+ * The cinema's own site lists what it is promoting, which is not the same as what it is showing:
+ * nine films there against thirty-six showings on Tickster, with a whole Korean film festival
+ * missing entirely. Tickster is also better structured — every showing carries an explicit ISO
+ * date, so no year has to be inferred from a Swedish month name.
  *
- * Each detail page lists showings as a weekday/day/month/time row beside a Tickster link.
+ * Two things make it awkward. It refuses to serve anyone without a session cookie, and it says
+ * so with a **200** — the "session timed out" page is a normal response, so a cookie-less fetch
+ * looks like a cinema with nothing on rather than an error. That is why this goes through
+ * [Http.sessionClient]. And its pager is client-side: the markup holds every showing at once and
+ * JavaScript hides all but fifteen, so what looks like three pages is a single request.
  *
- * Parsing is split out from fetching so the selectors can be tested against a saved page.
+ * No IMDb ids here, so matching stays on titles — which is why the title cleaning came first.
  */
-class SkandiaSource(private val indexUrl: String = INDEX) : CinemaSource {
+class SkandiaSource(private val calendarUrl: String = CALENDAR) : CinemaSource {
 
   override val id = SOURCE_ID
   override val label = "Bio Skandia"
-
-  /** Matches the index against the watchlist before fetching, so empty means "none of yours". */
-  override val narrowsByWatchlist = true
 
   override suspend fun fetchScreenings(
     cinemas: List<Cinema>,
@@ -39,110 +38,70 @@ class SkandiaSource(private val indexUrl: String = INDEX) : CinemaSource {
   ): List<RawScreening> =
     withContext(Dispatchers.IO) {
       val cinema = cinemas.firstOrNull() ?: return@withContext emptyList()
-      if (watchlist.isEmpty()) return@withContext emptyList()
 
-      val relevant =
-        parseIndex(Http.getString(indexUrl, accept = "text/html"), indexUrl).filter { film ->
-          TitleMatcher.findMatch(
-            MatchCandidate(
-              title = film.title,
-              originalTitle = film.originalTitle,
-              year = film.year,
-            ),
-            watchlist,
-          ) != null
-        }
-      if (relevant.isEmpty()) return@withContext emptyList()
+      // Two calls, not one: the first is turned away with a session cookie and no programme, and
+      // only the second — carrying that cookie — gets the real page.
+      Http.getString(calendarUrl, accept = "text/html", withCookies = true)
+      val html = Http.getString(calendarUrl, accept = "text/html", withCookies = true)
 
-      relevant.flatMap { film ->
-        parseFilmPage(
-            html = Http.getString(film.url, accept = "text/html"),
-            baseUrl = film.url,
-            cinema = cinema,
-            title = film.title,
-            originalTitle = film.originalTitle,
-            year = film.year,
-          )
-          .filter { !it.startTime.isBefore(from) && !it.startTime.isAfter(to) }
-      }
+      parse(html, cinema).filter { !it.startTime.isBefore(from) && !it.startTime.isAfter(to) }
     }
 
-  /** Films currently on the schedule, with their detail-page URLs. */
-  internal fun parseIndex(html: String, baseUrl: String): List<Film> =
-    Jsoup.parse(html, baseUrl)
-      .select("a[href*=/filmer/]")
-      .mapNotNull { link ->
+  /** Split out from the fetch so the selectors can be tested against a saved page. */
+  internal fun parse(html: String, cinema: Cinema): List<RawScreening> =
+    Jsoup.parse(html, calendarUrl)
+      .select("article.c-tile[data-startdate]")
+      .mapNotNull { tile ->
         val listed =
-          link.selectFirst("h2")?.text()?.trim()?.takeIf { it.isNotEmpty() }
+          tile.selectFirst(".event-name")?.text()?.trim()?.takeIf { it.isNotEmpty() }
             ?: return@mapNotNull null
 
-        // Skandia runs its auditorium as a venue as well as a cinema — guided tours, live
-        // performances, its own birthday party — all listed here alongside the films.
+        // Skandia runs its auditorium as a venue as well as a cinema: guided tours, stand-up,
+        // live music, its own birthday party. All of it sits in the same calendar as the films.
         if (ProgrammeStrands.isNonFilmEvent(listed)) return@mapNotNull null
 
-        // And its films carry the cinema's own furniture: "The Odyssey (70MM)",
-        // "Cinemateket: Persona", "Parasite (기생충)". The Korean is worth keeping — it is the
-        // film's original title, and what TMDB indexes it under — the projector format is not.
-        val cleaned = ProgrammeStrands.clean(listed)
-        Film(
-          title = cleaned.title,
-          originalTitle = cleaned.originalTitle,
-          year = cleaned.year,
-          url = link.absUrl("href"),
-        )
-      }
-      .distinctBy { it.url }
+        val date =
+          runCatching { LocalDate.parse(tile.attr("data-startdate")) }.getOrNull()
+            ?: return@mapNotNull null
+        val time =
+          SwedishDates.parseTime(tile.selectFirst(".c-date__time")?.text().orEmpty())
+            ?: return@mapNotNull null
 
-  /** Screening rows on one film's page. */
-  internal fun parseFilmPage(
-    html: String,
-    baseUrl: String,
-    cinema: Cinema,
-    title: String,
-    originalTitle: String? = null,
-    year: Int? = null,
-    today: LocalDate = LocalDate.now(SwedishDates.STOCKHOLM),
-  ): List<RawScreening> =
-    Jsoup.parse(html, baseUrl)
-      .select("a[href*=secure.tickster.com]")
-      .mapNotNull { link ->
-        val row = link.parents().firstOrNull { it.hasClass("border-b") } ?: return@mapNotNull null
-        val start = parseRow(row, today) ?: return@mapNotNull null
+        // "The Odyssey (70MM)", "Cinemateket: Persona", "Parasite (기생충)". The Korean is the
+        // film's original title and what TMDB indexes it under; the projector format is not.
+        val cleaned = ProgrammeStrands.clean(listed)
 
         RawScreening(
           cinemaId = cinema.id,
           cinemaName = cinema.name,
-          title = title,
-          originalTitle = originalTitle,
-          year = year,
-          startTime = start,
-          bookingUrl = link.absUrl("href").ifBlank { baseUrl },
+          title = cleaned.title,
+          originalTitle = cleaned.originalTitle,
+          year = cleaned.year,
+          startTime = date.atTime(time).atZone(SwedishDates.STOCKHOLM).toInstant(),
+          formatTags = cleaned.formats,
+          bookingUrl = bookingUrlOf(tile.id()) ?: calendarUrl,
         )
       }
-      .distinctBy { it.startTime }
+      .distinctBy { it.title to it.startTime }
 
-  /** A row reads "lördag 12 Sep … 14:00"; the year is implied by the calendar. */
-  private fun parseRow(row: Element, today: LocalDate): Instant? {
-    val text = row.text()
-    val date = Regex("(\\d{1,2})\\s+([A-Za-zÅÄÖåäö]{3,})").find(text) ?: return null
-    val day = date.groupValues[1].toIntOrNull() ?: return null
-    val month = SwedishDates.monthOf(date.groupValues[2]) ?: return null
-    val time = SwedishDates.parseTime(text) ?: return null
-    return SwedishDates.resolveYear(day, month, today)
-      .atTime(time)
-      .atZone(SwedishDates.STOCKHOLM)
-      .toInstant()
-  }
-
-  internal data class Film(
-    val title: String,
-    val url: String,
-    val originalTitle: String? = null,
-    val year: Int? = null,
-  )
+  /**
+   * The booking page for one showing, from the tile's own id.
+   *
+   * Tickster's buy button is an ASP.NET postback with no URL in it, but the id it posts —
+   * `ERC_7ZU35WV8MHR86GJ` — is the event's own code, and `/sv/{code}` is its booking page. That
+   * link bounces once through the session-timeout page and lands on the right basket, which is
+   * exactly what a browser does with it.
+   */
+  private fun bookingUrlOf(tileId: String): String? =
+    tileId.removePrefix("ERC_").takeIf { it.isNotBlank() && it != tileId }?.lowercase()?.let {
+      "https://secure.tickster.com/sv/$it"
+    }
 
   companion object {
     const val SOURCE_ID = "bio_skandia"
-    private const val INDEX = "https://bioskandia.se/filmer/"
+
+    /** Skandia's own Tickster storefront; `wux3mrj1um9x41g` is the venue, not one event. */
+    private const val CALENDAR =
+      "https://secure.tickster.com/sv/wux3mrj1um9x41g/selectevent"
   }
 }

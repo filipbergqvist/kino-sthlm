@@ -82,6 +82,14 @@ class TitleLookup(
     val overview: String? = null,
     /** Filled in lazily by [attachImdbId]; TMDB's search results do not carry it. */
     val imdbId: String? = null,
+    /**
+     * Other names TMDB has answered under for this same film.
+     *
+     * One film comes back as "Smultronstället" when asked in Swedish and "Wild Strawberries"
+     * when asked unlocalised. Both are the film's name as far as a cinema listing is concerned,
+     * so both have to count when checking whether a candidate really is the title we asked for.
+     */
+    val aliases: Set<String> = emptySet(),
     /** TMDB's own popularity score, used to rank which same-named film to offer first. */
     val popularity: Double = 0.0,
     /**
@@ -91,6 +99,12 @@ class TitleLookup(
     val genres: List<String> = emptyList(),
   ) {
     val isFilm: Boolean get() = type == TYPE_MOVIE
+
+    /** True when [wanted] (already strict-normalised) is one of this film's own names. */
+    internal fun isNamed(wanted: String): Boolean =
+      TitleMatcher.normalizeStrict(title) == wanted ||
+        originalTitle?.let { TitleMatcher.normalizeStrict(it) == wanted } == true ||
+        aliases.any { TitleMatcher.normalizeStrict(it) == wanted }
   }
 
   /**
@@ -106,37 +120,97 @@ class TitleLookup(
     val query = title.trim()
     if (query.isEmpty()) return@withContext Result(emptyList())
 
-    // TMDB's own search is inconsistent about Swedish diacritics: "Amelie från Montmartre"
-    // returns nothing at all, while the accent-folded "Amelie fran Montmartre" returns Amélie
-    // straight away. Same for "Blommor av stål" and "Bröderna Marx". Since every Stockholm
-    // cinema lists films under their Swedish release titles, that one quirk silently cost us a
-    // whole class of matches — so when the query as written finds nothing, ask again folded.
-    val all = search(query).ifEmpty {
-      val folded = foldAccents(query)
-      if (folded == query) emptyList() else search(folded)
-    }
-    if (all.isEmpty()) return@withContext Result(emptyList())
-
     // Strict comparison: identity, not cinema matching. Article-insensitive comparison would
     // make "The Sopranos" collide with the unrelated film "Sopranos".
     val wanted = TitleMatcher.normalizeStrict(query)
-    val exact =
-      all.filter {
-        TitleMatcher.normalizeStrict(it.title) == wanted ||
-          it.originalTitle?.let { original -> TitleMatcher.normalizeStrict(original) == wanted } == true
-      }
+    val found = LinkedHashMap<Int, Candidate>()
+
+    for ((text, language) in attempts(query)) {
+      merge(found, search(text, language))
+      if (found.values.any { it.isFilm && it.isNamed(wanted) }) break
+    }
+
+    val all = found.values.toList()
+    if (all.isEmpty()) return@withContext Result(emptyList())
+
+    val exact = all.filter { it.isNamed(wanted) }
     if (exact.isNotEmpty()) return@withContext Result(exact, matchedByAlias = false)
 
-    // TMDB matched a title it does not display — an alternative or regional one. Trust its
-    // ranking for what the query meant, then keep everything sharing that title so a remake is
-    // still offered as a choice.
-    val best = all.firstOrNull { it.isFilm } ?: return@withContext Result(emptyList())
-    val bestTitle = TitleMatcher.normalizeStrict(best.title)
+    // Nothing TMDB *displays* is called this. It may still be the film's name in some country —
+    // "Xiao Wu" is how China lists 小武 — so ask, rather than assume.
+    //
+    // Assuming is what this used to do: take TMDB's top-ranked film and call that the answer.
+    // TMDB ranks partial matches by popularity, so that quietly turned "Autofiktion" into
+    // "Bitter Christmas" and "Seven" into "Seven Snipers" — and a wrong film on your schedule
+    // is worse than a missing one, because you cannot tell it is wrong without going to check.
+    val verified =
+      all.asSequence()
+        .filter { it.isFilm }
+        .take(ALIAS_CHECKS)
+        .firstOrNull { hasAlternativeTitle(it.tmdbId, wanted) }
+        ?: return@withContext Result(emptyList())
+
+    // Keep everything sharing the verified film's name, so a remake is still offered as a choice.
+    val verifiedTitle = TitleMatcher.normalizeStrict(verified.title)
     Result(
-      all.filter { TitleMatcher.normalizeStrict(it.title) == bestTitle },
+      all.filter { TitleMatcher.normalizeStrict(it.title) == verifiedTitle },
       matchedByAlias = true,
     )
   }
+
+  /**
+   * The searches to try, in order, stopping at the first that actually names the film.
+   *
+   * Swedish first, because every Stockholm cinema lists films under their Swedish release title
+   * and TMDB only *displays* that title when asked in Swedish — unlocalised, "Drottning
+   * Kristina" comes back as "Queen Christina" and fails the identity check, which is how a film
+   * TMDB knows perfectly well ended up reported as not found.
+   *
+   * Then unlocalised, so an English or original-language listing still resolves.
+   *
+   * Then both again accent-folded: TMDB's search returns nothing at all for "Amelie från
+   * Montmartre" while "Amelie fran Montmartre" finds Amélie straight away.
+   */
+  private fun attempts(query: String): List<Pair<String, String?>> = buildList {
+    add(query to SWEDISH)
+    add(query to null)
+    val folded = foldAccents(query)
+    if (folded != query) {
+      add(folded to SWEDISH)
+      add(folded to null)
+    }
+  }
+
+  /**
+   * Fold search results into what we already have, keeping every name a film answered under.
+   *
+   * First answer wins for the displayed title — the Swedish search runs first, so a Swedish
+   * listing keeps its Swedish name — while later answers only contribute aliases.
+   */
+  private fun merge(into: LinkedHashMap<Int, Candidate>, found: List<Candidate>) {
+    for (candidate in found) {
+      val existing = into[candidate.tmdbId]
+      into[candidate.tmdbId] =
+        if (existing == null) candidate
+        else
+          existing.copy(
+            aliases = existing.aliases + candidate.title + setOfNotNull(candidate.originalTitle)
+          )
+    }
+  }
+
+  /** Does TMDB list [wanted] (strict-normalised) among this film's release titles anywhere? */
+  private fun hasAlternativeTitle(tmdbId: Int, wanted: String): Boolean =
+    runCatching {
+      val titles =
+        JSONObject(get("$baseUrl/movie/$tmdbId/alternative_titles?$auth"))
+          .optJSONArray("titles") ?: return false
+      (0 until titles.length()).any { index ->
+        val alternative = titles.optJSONObject(index)?.optString("title").orEmpty()
+        alternative.isNotBlank() && TitleMatcher.normalizeStrict(alternative) == wanted
+      }
+    }
+      .getOrDefault(false)
 
   /**
    * Best-effort single TMDB match for a cinema listing's raw title.
@@ -149,14 +223,37 @@ class TitleLookup(
    */
   suspend fun resolveBestMatch(title: String, year: Int? = null): Candidate? {
     if (!isConfigured) return null
-    val result = runCatching { lookup(title) }.getOrNull() ?: return null
-    val films = result.films
-    if (films.isEmpty()) return null
+    val films = runCatching { lookup(title) }.getOrNull()?.films.orEmpty()
     if (films.size == 1) return films.single()
 
-    val byYear = year?.let { films.filter { film -> film.year != null && kotlin.math.abs(film.year - it) <= 1 } }
-    return byYear?.singleOrNull()
+    if (films.isNotEmpty()) {
+      val byYear =
+        year?.let { wanted ->
+          films.filter { it.year != null && kotlin.math.abs(it.year - wanted) <= 1 }
+        }
+      return byYear?.singleOrNull()
+    }
+
+    // Multi-search found nothing named this. When the cinema published a year, there is one more
+    // thing to try: a crowded title buries its film below twenty namesakes and a page of TV, and
+    // multi-search has no year filter to cut through that — Bio Rio's "House (1977)" never
+    // reached Hausu for exactly that reason. The movie endpoint does take a year.
+    return year?.let { searchByYear(title, it) }
   }
+
+  /** A year-scoped film search, accepting only a result actually named [title]. */
+  private suspend fun searchByYear(title: String, year: Int): Candidate? =
+    withContext(Dispatchers.IO) {
+      val wanted = TitleMatcher.normalizeStrict(title)
+      for ((text, language) in attempts(title)) {
+        val hit =
+          runCatching { searchFilms(text, year, language) }
+            .getOrDefault(emptyList())
+            .firstOrNull { it.isNamed(wanted) }
+        if (hit != null) return@withContext hit
+      }
+      null
+    }
 
   /**
    * Resolve an IMDb id straight to its film.
@@ -210,11 +307,25 @@ class TitleLookup(
   }
 
   /** One multi-search round trip, mapped to candidates. */
-  private fun search(query: String): List<Candidate> {
-    val json = get("$baseUrl/search/multi?query=${encode(query)}&include_adult=false&$auth")
-    val results = JSONObject(json).optJSONArray("results") ?: return emptyList()
+  private fun search(query: String, language: String? = null): List<Candidate> =
+    resultsOf(
+      "$baseUrl/search/multi?query=${encode(query)}&include_adult=false" +
+        "${language.orEmpty().let { if (it.isEmpty()) "" else "&language=$it" }}&$auth"
+    )
+
+  /** The film-only endpoint, which unlike multi-search accepts a year. */
+  private fun searchFilms(query: String, year: Int, language: String? = null): List<Candidate> =
+    resultsOf(
+      "$baseUrl/search/movie?query=${encode(query)}&include_adult=false&year=$year" +
+        "${language.orEmpty().let { if (it.isEmpty()) "" else "&language=$it" }}&$auth",
+      // /search/movie omits media_type; everything it returns is a film by definition.
+      forcedType = TYPE_MOVIE,
+    )
+
+  private fun resultsOf(url: String, forcedType: String? = null): List<Candidate> {
+    val results = JSONObject(get(url)).optJSONArray("results") ?: return emptyList()
     return (0 until results.length()).mapNotNull { index ->
-      results.optJSONObject(index)?.let(::candidateOf)
+      results.optJSONObject(index)?.let { candidateOf(it, forcedType) }
     }
   }
 
@@ -275,6 +386,17 @@ class TitleLookup(
 
     const val TYPE_MOVIE = "movie"
     const val TYPE_TV = "tv"
+
+    /** The language Stockholm cinemas publish in, and so the one to ask TMDB in first. */
+    private const val SWEDISH = "sv-SE"
+
+    /**
+     * How many top films to ask for alternative titles before giving up.
+     *
+     * One request each, on the miss path only. Three is enough for a genuine foreign-release
+     * title to show up without turning every unmatched listing into a round of twenty calls.
+     */
+    private const val ALIAS_CHECKS = 3
 
     private val IMDB_ID = Regex("""tt\d{5,}""")
     private val TMDB_URL_ID = Regex("""themoviedb\.org/movie/(\d+)""")

@@ -187,6 +187,7 @@ class LiveSourceCanaryTest {
         Triple("Bio Capitol", CapitolSource() as CinemaSource, "bio_capitol"),
         Triple("Bio Rio", BioRioSource(), "bio_rio"),
         Triple("Biocafé Tellus", TellusSource(), "bio_tellus"),
+        Triple("Bio Skandia", SkandiaSource(), "bio_skandia"),
       )
 
     val stamp = DateTimeFormatter.ofPattern("EEE d MMM HH:mm").withZone(SwedishDates.STOCKHOLM)
@@ -214,24 +215,6 @@ class LiveSourceCanaryTest {
       }
     }
 
-    // Skandia narrows by watchlist before fetching, so it gets its own listings back.
-    val skandia = SkandiaSource()
-    val skandiaFilms =
-      skandia.parseIndex(
-        Http.getString("https://bioskandia.se/filmer/", accept = "text/html"),
-        "https://bioskandia.se/filmer/",
-      )
-    println("\n===== Bio Skandia: ${skandiaFilms.size} films listed =====")
-    val skandiaShows =
-      skandia.fetchScreenings(
-        cinemas = listOf(cinema("bio_skandia", "Bio Skandia", skandia)),
-        watchlist = watchlistOf(*skandiaFilms.map { it.title }.toTypedArray()),
-        from = from,
-        to = to,
-      )
-    for ((title, shows) in skandiaShows.groupBy { it.title }.toSortedMap(String.CASE_INSENSITIVE_ORDER)) {
-      println("  $title  ->  ${shows.sortedBy { it.startTime }.joinToString(", ") { stamp.format(it.startTime) }}")
-    }
   }
 
   /**
@@ -299,6 +282,7 @@ class LiveSourceCanaryTest {
         Triple("Bio Rio", BioRioSource() as CinemaSource, "bio_rio"),
         Triple("Bio Capitol", CapitolSource(), "bio_capitol"),
         Triple("Biocafé Tellus", TellusSource(), "bio_tellus"),
+        Triple("Bio Skandia", SkandiaSource(), "bio_skandia"),
       )
 
     val empty = mutableListOf<String>()
@@ -319,31 +303,9 @@ class LiveSourceCanaryTest {
       if (screenings.none { it.startTime.isBefore(fortnight) }) empty += "$name returned nothing"
     }
 
-    // Skandia and Filmstaden narrow by watchlist *before* fetching detail pages, so handing them
-    // a watchlist of nothing in particular proves nothing. Feed each one what it is itself
-    // advertising, so an empty result really does mean the adapter has stopped working.
-    val skandia = SkandiaSource()
-    val skandiaVenue = cinema("bio_skandia", "Bio Skandia", skandia)
-    val skandiaTitles =
-      skandia
-        .parseIndex(
-          Http.getString("https://bioskandia.se/filmer/", accept = "text/html"),
-          "https://bioskandia.se/filmer/",
-        )
-        .map { it.title }
-    if (skandiaTitles.isEmpty()) {
-      empty += "Bio Skandia listed no films at all"
-    } else {
-      val skandiaShows =
-        skandia.fetchScreenings(
-          cinemas = listOf(skandiaVenue),
-          watchlist = watchlistOf(*skandiaTitles.toTypedArray()),
-          from = from,
-          to = fortnight,
-        )
-      if (skandiaShows.isEmpty()) empty += "Bio Skandia returned nothing for its own listings"
-    }
-
+    // Filmstaden narrows by watchlist *before* fetching, so handing it a watchlist of nothing in
+    // particular proves nothing. Feed it what it is itself advertising, so an empty result really
+    // does mean the adapter has stopped working.
     val catalogue = Http.getString("https://services.cinema-api.com/movie/scheduled/sv/1/200/false")
     val onRelease =
       org.json.JSONObject(catalogue).getJSONArray("items").let { array ->
@@ -394,40 +356,24 @@ class LiveSourceCanaryTest {
   }
 
   @Test
-  fun `skandia index still lists films`() = runTest {
-    // Index-only: whether any given film is on the watchlist varies week to week.
-    val films =
-      SkandiaSource().parseIndex(
-        Http.getString("https://bioskandia.se/filmer/", accept = "text/html"),
-        "https://bioskandia.se/filmer/",
-      )
-    assertTrue("Bio Skandia listed no films — the index markup may have changed", films.isNotEmpty())
-    assertTrue(films.all { it.url.contains("/filmer/") })
-  }
-
-  @Test
-  fun `skandia film pages still carry showtimes`() = runTest {
+  fun `skandia still serves its tickster calendar`() = runTest {
     val source = SkandiaSource()
-    val films =
-      source.parseIndex(
-        Http.getString("https://bioskandia.se/filmer/", accept = "text/html"),
-        "https://bioskandia.se/filmer/",
+    val screenings =
+      source.fetchScreenings(
+        cinemas = listOf(cinema("bio_skandia", "Bio Skandia", source)),
+        watchlist = watchlistOf("anything"),
+        from = from,
+        to = to,
       )
-    assumeTrue("No films listed to check", films.isNotEmpty())
 
-    val venue = cinema("bio_skandia", "Bio Skandia", source)
-    // At least one currently-listed film must expose a parseable showtime row.
-    val anyShowtimes =
-      films.take(4).any { film ->
-        source
-          .parseFilmPage(
-            html = Http.getString(film.url, accept = "text/html"),
-            baseUrl = film.url,
-            cinema = venue,
-            title = film.title,
-          )
-          .isNotEmpty()
-      }
-    assertTrue("No Bio Skandia film page yielded showtimes", anyShowtimes)
+    // The failure this guards is specific and quiet: Tickster answers a cookie-less request with
+    // a "session timed out" page and a 200, so a broken session looks exactly like a cinema with
+    // nothing on. Skandia always has something on.
+    assertTrue(
+      "Bio Skandia returned nothing — the session handshake or the tile markup has changed",
+      screenings.isNotEmpty(),
+    )
+    assertTrue(screenings.all { it.title.isNotBlank() })
+    assertTrue(screenings.all { it.bookingUrl.contains("tickster.com") })
   }
 }

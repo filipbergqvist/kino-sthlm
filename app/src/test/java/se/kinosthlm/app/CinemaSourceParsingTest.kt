@@ -145,44 +145,38 @@ class CinemaSourceParsingTest {
     assertTrue(screenings.all { it.startTime.isAfter(Instant.EPOCH) })
   }
 
-  // --- Bio Skandia: film index + per-film Tickster rows ---
+  // --- Bio Skandia: its Tickster storefront ---
 
   @Test
-  fun `skandia reads the film index`() {
-    val films = SkandiaSource().parseIndex(fixture("skandia_index.html"), "https://bioskandia.se/filmer/")
+  fun `skandia reads its tickster calendar`() {
+    val screenings = SkandiaSource().parse(fixture("skandia_tickster.html"), cinema("bio_skandia", "Bio Skandia"))
 
-    assertTrue(films.isNotEmpty())
-    assertTrue(films.all { it.title.isNotBlank() })
-    assertTrue(films.all { it.url.contains("/filmer/") })
-    // The index links each film once.
-    assertEquals(films.size, films.map { it.url }.distinct().size)
-  }
+    // Six tiles in, four films out: the stand-up night and the guided tour are not screenings.
+    assertEquals(4, screenings.size)
+    assertTrue(screenings.none { it.title.contains("Masood") })
+    assertTrue(screenings.none { it.title.contains("Guidad") })
 
-  @Test
-  fun `skandia reads showtimes from a film page`() {
-    val venue = cinema("bio_skandia", "Bio Skandia")
-    val screenings =
-      SkandiaSource()
-        .parseFilmPage(
-          html = fixture("skandia_film.html"),
-          baseUrl = "https://bioskandia.se/filmer/nosferatu/",
-          cinema = venue,
-          title = "Nosferatu",
-          // Pinned so the year inference is deterministic; the fixture says "12 Sep".
-          today = LocalDate.of(2026, 9, 5),
-        )
-
-    assertTrue("expected showtimes", screenings.isNotEmpty())
-    val first = screenings.minByOrNull { it.startTime }
-    assertNotNull(first)
-    val local = first!!.startTime.atZone(SwedishDates.STOCKHOLM)
+    // Tickster publishes an explicit date, so nothing here is inferred from a month name.
+    val odyssey = screenings.single { it.title == "The Odyssey" }
+    val local = odyssey.startTime.atZone(SwedishDates.STOCKHOLM)
     assertEquals(2026, local.year)
     assertEquals(9, local.monthValue)
-    assertTrue(screenings.all { it.bookingUrl.contains("tickster.com") })
+    assertEquals(6, local.dayOfMonth)
+    assertEquals(17, local.hour)
+    // "(70MM)" is how it is projected, not what it is called.
+    assertTrue(odyssey.formatTags.any { it.equals("70MM", ignoreCase = true) })
+
+    // A Korean original title is kept — it is what TMDB indexes the film under.
+    assertEquals("기생충", screenings.single { it.title == "Parasite" }.originalTitle)
+    // And a festival note comes off without taking the original title with it.
+    assertEquals("호프", screenings.single { it.title == "Hope" }.originalTitle)
+
+    // The buy button is a postback, so the link is rebuilt from the tile's own event code.
+    assertEquals("https://secure.tickster.com/sv/7zu35wv8mhr86gj", odyssey.bookingUrl)
   }
 
   @Test
-  fun `skandia resolves a december listing seen in january to the coming year`() {
+  fun `a december listing seen in january resolves to the coming year`() {
     // Guards the year inference: "5 jan" seen on 28 December is next year, not eleven months ago.
     val resolved = SwedishDates.resolveYear(5, 1, LocalDate.of(2026, 12, 28))
     assertEquals(LocalDate.of(2027, 1, 5), resolved)
