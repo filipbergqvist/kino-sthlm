@@ -40,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,6 +51,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import kotlinx.coroutines.launch
+import se.kinosthlm.app.data.model.Cinema
 import se.kinosthlm.app.data.model.TitleCandidate
 import se.kinosthlm.app.data.model.WatchlistItem
 import se.kinosthlm.app.data.watchlist.TitleLookup
@@ -79,7 +82,10 @@ import se.kinosthlm.app.ui.viewmodel.UiState
 fun ReviewDialog(
   entries: List<ReviewEntry>,
   onChoose: (String, TitleCandidate) -> Unit,
-  onResolveByLink: (String, String) -> Unit,
+  onPreviewLink: (String, String) -> Unit,
+  /** A pasted link already resolved to this film, awaiting a yes. */
+  linkPreview: TitleCandidate?,
+  onCancelLinkPreview: () -> Unit,
   onKeepAsFilm: (String) -> Unit,
   onRemove: (String) -> Unit,
   onOpenLink: (String) -> Unit,
@@ -100,15 +106,31 @@ fun ReviewDialog(
   var previewing by remember(entry.item.id) { mutableStateOf<TitleCandidate?>(null) }
   val isSeries = entry.item.titleType == WatchlistItem.TYPE_SERIES
 
+  val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+  val scope = rememberCoroutineScope()
+
   ModalBottomSheet(
-    // Dismissing a preview means "back to the list", not "abandon the review". Swiping the sheet
-    // down out of a preview used to close the whole queue, losing your place in it.
-    onDismissRequest = { if (previewing != null) previewing = null else onDismiss() },
-    sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    // Dismissing a preview means "back to the list", not "abandon the review".
+    //
+    // Clearing the preview is not enough on its own: by the time this fires, the sheet has
+    // already animated itself out of the way, so the queue came back invisible and the screen
+    // just sat there until you pressed Back. It has to be told to come up again.
+    onDismissRequest = {
+      if (previewing != null) {
+        previewing = null
+        scope.launch { sheetState.show() }
+      } else {
+        onDismiss()
+      }
+    },
+    sheetState = sheetState,
     modifier = Modifier.testTag("review_sheet"),
   ) {
-    val candidate = previewing
+    // A pasted link takes precedence: it is the thing the user just did, and confirming it is
+    // the only reason it is on screen. Otherwise show whichever candidate they tapped Info on.
+    val candidate = linkPreview ?: previewing
     if (candidate != null) {
+      val fromLink = linkPreview != null
       CandidatePreview(
         title = candidate.title,
         year = candidate.year,
@@ -116,18 +138,24 @@ fun ReviewDialog(
         overview = candidate.overview,
         imdbId = candidate.imdbId,
         tmdbId = candidate.tmdbId,
+        heading = if (fromLink) "Is this the right film?" else null,
         onOpenLink = onOpenLink,
         // Nothing to select on a series candidate: picking it would just re-assert the thing
         // the user is being asked to overrule.
         onSelect =
-          if (isSeries) null
+          if (isSeries && !fromLink) null
           else {
             {
               onChoose(entry.item.id, candidate)
               previewing = null
+              onCancelLinkPreview()
             }
           },
-        onBack = { previewing = null },
+        selectLabel = if (fromLink) "Yes, that is it" else "Select",
+        onBack = {
+          previewing = null
+          onCancelLinkPreview()
+        },
       )
       return@ModalBottomSheet
     }
@@ -181,7 +209,7 @@ fun ReviewDialog(
         trailingIcon = {
           if (link.isNotBlank()) {
             TextButton(
-              onClick = { onResolveByLink(entry.item.id, link.trim()) },
+              onClick = { onPreviewLink(entry.item.id, link.trim()) },
               modifier = Modifier.testTag("resolve_link"),
             ) {
               Text("Use")
@@ -238,6 +266,8 @@ private fun CandidatePreview(
   onSelect: (() -> Unit)?,
   onBack: () -> Unit,
   selectLabel: String = "Select",
+  /** Optional question above the card, for when the preview *is* the question being asked. */
+  heading: String? = null,
 ) {
   Column(
     Modifier.padding(horizontal = 20.dp)
@@ -245,6 +275,10 @@ private fun CandidatePreview(
       .verticalScroll(rememberScrollState())
       .testTag("candidate_preview"),
   ) {
+    if (heading != null) {
+      Text(heading, style = MaterialTheme.typography.titleLarge)
+      Spacer(Modifier.height(12.dp))
+    }
     Row {
       val posterShape = Modifier.size(width = 120.dp, height = 180.dp).clip(RoundedCornerShape(8.dp))
       if (posterUrl != null) {
@@ -435,10 +469,21 @@ fun AddFilmDialog(
   var searched by remember { mutableStateOf(false) }
   var previewing by remember { mutableStateOf<TitleLookup.Candidate?>(null) }
   val keyboard = LocalSoftwareKeyboardController.current
+  val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+  val scope = rememberCoroutineScope()
 
   ModalBottomSheet(
-    onDismissRequest = { if (previewing != null) previewing = null else onDismiss() },
-    sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    // Same as the review sheet: backing out of a preview returns to the results, and the sheet
+    // has to be shown again or it stays hidden with nothing on screen.
+    onDismissRequest = {
+      if (previewing != null) {
+        previewing = null
+        scope.launch { sheetState.show() }
+      } else {
+        onDismiss()
+      }
+    },
+    sheetState = sheetState,
     modifier = Modifier.testTag("add_sheet"),
   ) {
     val candidate = previewing
@@ -550,21 +595,29 @@ fun AddFilmDialog(
 }
 
 /**
- * Source and genre, tucked behind one chip.
+ * Everything that narrows the watchlist, in one sheet.
  *
- * They could each have been another chip in the filter row, but that row already carries
- * "Showing soon", the sort and the search field above it, and two more pickers would push it into
- * wrapping — the exact problem the sort chip was collapsed to solve.
+ * All of it lives here rather than as chips in the list header: with source, genre, venue type,
+ * muted and "showing soon" there are far too many to sit in a row, and they read better grouped
+ * by what they are about anyway.
+ *
+ * Every facet multi-selects. Wanting "action *and* comedy", or "Trakt *and* Google TV", is the
+ * obvious thing to want, and the single-select version could not express it.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun WatchlistFiltersSheet(
   uiState: UiState,
-  onSetSource: (String?) -> Unit,
-  onSetGenre: (String?) -> Unit,
+  onToggleShowingSoon: () -> Unit,
+  onToggleMutedOnly: () -> Unit,
+  onToggleSource: (String) -> Unit,
+  onToggleGenre: (String) -> Unit,
+  onToggleVenueTag: (String) -> Unit,
   onClear: () -> Unit,
   onDismiss: () -> Unit,
 ) {
+  val filters = uiState.filters
+
   ModalBottomSheet(
     onDismissRequest = onDismiss,
     sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -577,70 +630,112 @@ fun WatchlistFiltersSheet(
     ) {
       Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text("Filters", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-        if (uiState.activeFilterCount > 0) {
+        if (filters.activeCount > 0) {
           TextButton(onClick = onClear, modifier = Modifier.testTag("clear_filters")) {
             Text("Clear all")
           }
         }
       }
 
-      Spacer(Modifier.height(8.dp))
-      Text("Source", style = MaterialTheme.typography.labelMedium)
-      FilterRow(
+      Spacer(Modifier.height(12.dp))
+      FlowRow(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+      ) {
+        FilterChip(
+          selected = filters.showingSoon,
+          onClick = onToggleShowingSoon,
+          label = { Text("Showing soon") },
+          modifier = Modifier.testTag("filter_showing_soon"),
+        )
+        FilterChip(
+          selected = filters.mutedOnly,
+          onClick = onToggleMutedOnly,
+          label = { Text("Muted") },
+          modifier = Modifier.testTag("filter_muted"),
+        )
+      }
+
+      FilterFacet(
+        label = "Source",
         options = uiState.availableSources,
-        selected = uiState.sourceFilter,
+        selected = filters.sources,
         labelOf = ::sourceLabel,
-        onSelect = onSetSource,
+        onToggle = onToggleSource,
         tagPrefix = "filter_source",
       )
 
-      Spacer(Modifier.height(16.dp))
-      Text("Genre", style = MaterialTheme.typography.labelMedium)
-      if (uiState.availableGenres.isEmpty()) {
-        Text(
-          "Genres arrive with each film's poster, so this fills in as the list loads.",
-          style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-          modifier = Modifier.padding(top = 4.dp),
-        )
-      } else {
-        FilterRow(
-          options = uiState.availableGenres,
-          selected = uiState.genreFilter,
-          labelOf = { it },
-          onSelect = onSetGenre,
-          tagPrefix = "filter_genre",
-        )
-      }
+      // Venue type is about where a film is playing, so it can only narrow films that have a
+      // screening at all — worth saying, or an empty result looks like a bug.
+      FilterFacet(
+        label = "Cinema type",
+        options = Cinema.ALL_TAGS,
+        selected = filters.venueTags,
+        labelOf = { it },
+        onToggle = onToggleVenueTag,
+        tagPrefix = "filter_venue",
+        note = "Only films with a screening found at that kind of cinema.",
+      )
+
+      FilterFacet(
+        label = "Genre",
+        options = uiState.availableGenres,
+        selected = filters.genres,
+        labelOf = { it },
+        onToggle = onToggleGenre,
+        tagPrefix = "filter_genre",
+        emptyNote = "Genres arrive with each film's poster, so this fills in as the list loads.",
+      )
     }
   }
 }
 
-/** "All" plus one chip per option, wrapping onto as many lines as it needs. */
+/** One group of multi-select chips, wrapping onto as many lines as it needs. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun FilterRow(
+private fun FilterFacet(
+  label: String,
   options: List<String>,
-  selected: String?,
+  selected: Set<String>,
   labelOf: (String) -> String,
-  onSelect: (String?) -> Unit,
+  onToggle: (String) -> Unit,
   tagPrefix: String,
+  note: String? = null,
+  emptyNote: String? = null,
 ) {
+  Spacer(Modifier.height(16.dp))
+  Text(label, style = MaterialTheme.typography.labelMedium)
+
+  if (options.isEmpty()) {
+    if (emptyNote != null) {
+      Text(
+        emptyNote,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 4.dp),
+      )
+    }
+    return
+  }
+
+  if (note != null) {
+    Text(
+      note,
+      style = MaterialTheme.typography.bodySmall,
+      color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+  }
+
   FlowRow(
     Modifier.fillMaxWidth().padding(top = 4.dp),
     horizontalArrangement = Arrangement.spacedBy(8.dp),
     verticalArrangement = Arrangement.spacedBy(4.dp),
   ) {
-    FilterChip(
-      selected = selected == null,
-      onClick = { onSelect(null) },
-      label = { Text("All") },
-      modifier = Modifier.testTag("${tagPrefix}_all"),
-    )
     for (option in options) {
       FilterChip(
-        selected = selected == option,
-        onClick = { onSelect(if (selected == option) null else option) },
+        selected = option in selected,
+        onClick = { onToggle(option) },
         label = { Text(labelOf(option)) },
         modifier = Modifier.testTag("${tagPrefix}_$option"),
       )

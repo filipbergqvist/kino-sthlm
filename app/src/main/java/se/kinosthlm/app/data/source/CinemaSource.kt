@@ -55,4 +55,12 @@ data class RawScreening(
   val formatTags: List<String> = emptyList(),
   val bookingUrl: String,
   val priceSek: Int? = null,
+  /**
+   * The cinema's own page about this film, where it has one.
+   *
+   * Not shown to anyone — it is where a source goes to turn a branded listing title into a real
+   * identity. Bio Capitol's film pages carry an IMDb id and a release year, which beats guessing
+   * from "Afternoon Tea: Amelie från Montmartre".
+   */
+  val filmPageUrl: String? = null,
 )

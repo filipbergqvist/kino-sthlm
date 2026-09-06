@@ -151,6 +151,30 @@ private constructor(
       items.size
     }
 
+  /**
+   * Restore a CSV this app exported.
+   *
+   * Adds rather than replaces. A backup is something you reach for to get films *back* — losing
+   * whatever you had added since would be the opposite of the point — so this merges, and a film
+   * already present just gains a second claim on itself. It goes in under the manual source for
+   * the same reason: nothing upstream is going to keep it alive.
+   *
+   * Returns how many films the file contained.
+   */
+  suspend fun importBackup(uri: Uri): Int =
+    withContext(Dispatchers.IO) {
+      val items =
+        context.contentResolver.openInputStream(uri)?.use {
+          CsvWatchlistImporter.parse(it, WatchlistItem.SOURCE_MANUAL)
+        } ?: error("Could not open the selected file")
+
+      if (items.isEmpty()) {
+        error("No films found in that file. Is it a KinoSthlm export?")
+      }
+      for (item in items) database.watchlistDao().addManual(item)
+      items.size
+    }
+
   /** Write the watchlist to [uri] as a Trakt-importable CSV. Returns how many films were written. */
   suspend fun exportCsv(uri: Uri): Int =
     withContext(Dispatchers.IO) {

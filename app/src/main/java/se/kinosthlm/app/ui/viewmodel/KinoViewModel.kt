@@ -72,6 +72,25 @@ enum class WatchlistSort(val label: String) {
   fun next(): WatchlistSort = entries[(ordinal + 1) % entries.size]
 }
 
+/**
+ * How often the background sync runs.
+ *
+ * Cinema programmes are updated once a day at most, so anything finer than daily re-reads the
+ * same pages — which is why the old hourly options came with a note asking people not to sync too
+ * often. Making the choices themselves considerate is better than asking.
+ */
+enum class SyncCadence(val hours: Long, val label: String) {
+  DAILY(24, "Every day"),
+  EVERY_OTHER_DAY(48, "Every other day"),
+  EVERY_THIRD_DAY(72, "Every third day"),
+  WEEKLY(168, "Once a week");
+
+  companion object {
+    /** Nearest cadence to a stored interval, so an old six-hourly setting maps to Daily. */
+    fun of(hours: Long): SyncCadence = entries.minBy { kotlin.math.abs(it.hours - hours) }
+  }
+}
+
 /** State of the Trakt device-code flow, driven from Settings. */
 sealed interface TraktState {
   data object Disconnected : TraktState
@@ -92,6 +111,11 @@ data class UiState(
   val hasFilms: Boolean = false,
   /** Everything being tracked, before any filter or search narrows [watchlist] down. */
   val trackedCount: Int = 0,
+  /**
+   * Imported films still waiting on a TMDB id. Kept out of the list — they have no poster and
+   * are about to be re-keyed — but counted, so an import never looks like it lost titles.
+   */
+  val identifyingCount: Int = 0,
   val isSyncing: Boolean = false,
   val syncStep: String? = null,
   val lastReport: SyncReport? = null,
@@ -99,14 +123,17 @@ data class UiState(
   val lastSyncSummary: String = "",
   val autoSyncEnabled: Boolean = true,
   val syncIntervalHours: Long = SettingsStore.DEFAULT_INTERVAL_HOURS,
+  /** Local hour the scheduled sync aims for. */
+  val syncHourOfDay: Int = SettingsStore.DEFAULT_SYNC_HOUR,
   val horizonDays: Long = SettingsStore.DEFAULT_HORIZON_DAYS,
   val notificationsEnabled: Boolean = true,
   val cinemaFilter: String? = null,
-  val showingSoonOnly: Boolean = false,
-  /** Show only films contributed by this source id; null means every source. */
-  val sourceFilter: String? = null,
-  /** Show only films TMDB puts in this genre; null means every genre. */
-  val genreFilter: String? = null,
+  /**
+   * The watchlist filters, all of them additive within a facet and combined across facets: pick
+   * Action *and* Comedy to see both, then add Trakt to see only those from Trakt. An empty set
+   * means that facet is not filtering at all, which is not the same as selecting nothing.
+   */
+  val filters: WatchlistFilters = WatchlistFilters(),
   /** Sources that actually contribute something, so the picker offers only real choices. */
   val availableSources: List<String> = emptyList(),
   /** Genres present in the watchlist, for the same reason. */
@@ -131,9 +158,34 @@ data class UiState(
   val failedSources: List<SourceResult> get() = lastReport?.failedSources.orEmpty()
   val isSelecting: Boolean get() = selectedIds.isNotEmpty()
 
-  /** How many of the tucked-away filters are on, so the chip can say so without opening. */
-  val activeFilterCount: Int
-    get() = listOfNotNull(sourceFilter, genreFilter).size
+  /** How many filters are on, so the chip can say so without being opened. */
+  val activeFilterCount: Int get() = filters.activeCount
+}
+
+/**
+ * Everything narrowing the watchlist down, in one place.
+ *
+ * Each facet is a *set* rather than a single choice: "Action or Comedy" and "Trakt or Google TV"
+ * are the obvious things to want, and single-select made them impossible. Within a facet the
+ * selections are alternatives (any of these); across facets they compound (all of these).
+ */
+data class WatchlistFilters(
+  /** Only films with a screening already found. Was a chip of its own; it belongs with the rest. */
+  val showingSoon: Boolean = false,
+  /** Only films whose notifications the user silenced. */
+  val mutedOnly: Boolean = false,
+  val sources: Set<String> = emptySet(),
+  val genres: Set<String> = emptySet(),
+  /** Only films with a screening at a cinema carrying one of these [Cinema.tagList] tags. */
+  val venueTags: Set<String> = emptySet(),
+) {
+  val activeCount: Int
+    get() =
+      sources.size + genres.size + venueTags.size +
+        (if (showingSoon) 1 else 0) +
+        (if (mutedOnly) 1 else 0)
+
+  val isEmpty: Boolean get() = activeCount == 0
 }
 
 class KinoViewModel(application: Application) : AndroidViewModel(application) {
@@ -145,15 +197,15 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
   private val syncStep = MutableStateFlow<String?>(null)
   private val lastReport = MutableStateFlow<SyncReport?>(null)
   private val cinemaFilter = MutableStateFlow<String?>(null)
-  private val showingSoonOnly = MutableStateFlow(false)
-  private val sourceFilter = MutableStateFlow<String?>(null)
-  private val genreFilter = MutableStateFlow<String?>(null)
+  private val watchlistFilters = MutableStateFlow(WatchlistFilters())
   private val watchlistQuery = MutableStateFlow("")
   private val watchlistSort = MutableStateFlow(WatchlistSort.RECENTLY_ADDED)
   private val traktState = MutableStateFlow<TraktState>(TraktState.Disconnected)
   private val message = MutableStateFlow<String?>(null)
   private val resolveProgress = MutableStateFlow<Pair<Int, Int>?>(null)
   private val selectedIds = MutableStateFlow<Set<String>>(emptySet())
+  /** A pasted link resolved to this film, awaiting the user's yes. */
+  private val linkPreview = MutableStateFlow<TitleCandidate?>(null)
   private val addSearchResults = MutableStateFlow<List<TitleLookup.Candidate>>(emptyList())
   private val addSearching = MutableStateFlow(false)
   private val addSearchError = MutableStateFlow<String?>(null)
@@ -163,6 +215,10 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
       AddSearchState(results, searching, error)
     }
       .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AddSearchState())
+
+  /** The film a pasted link resolved to, waiting to be confirmed. Null when nothing is pending. */
+  val linkPreviewState: StateFlow<TitleCandidate?> =
+    linkPreview.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
   private var traktJob: Job? = null
   private var addSearchJob: Job? = null
@@ -174,14 +230,12 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
           repository.upcomingScreenings,
           repository.cinemas,
           repository.watchlistSources,
-          combine(
-            cinemaFilter,
-            showingSoonOnly,
-            watchlistQuery,
-            watchlistSort,
-            combine(sourceFilter, genreFilter) { source, genre -> source to genre },
-          ) { filter, soonOnly, query, sort, narrowing ->
-            Filters(filter, soonOnly, query, sort, narrowing.first, narrowing.second)
+          combine(cinemaFilter, watchlistFilters, watchlistQuery, watchlistSort) {
+            cinema,
+            filters,
+            query,
+            sort ->
+            Filters(cinema, filters, query, sort)
           },
         ) { watchlist, screenings, cinemas, sources, filters ->
           Content(watchlist, screenings, cinemas, sources, filters)
@@ -192,8 +246,9 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
             settings.syncIntervalHours,
             settings.horizonDays,
             settings.tmdbApiKey,
-          ) { auto, interval, horizon, tmdbKey ->
-            Schedule(auto, interval, horizon, tmdbKey)
+            settings.syncHourOfDay,
+          ) { auto, interval, horizon, tmdbKey, syncHour ->
+            Schedule(auto, interval, horizon, tmdbKey, syncHour)
           },
           settings.notificationsEnabled,
           settings.lastSyncAt,
@@ -204,6 +259,7 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
             schedule.intervalHours,
             schedule.horizonDays,
             schedule.tmdbKey,
+            schedule.syncHour,
             notifications,
             lastAt,
             summary,
@@ -230,7 +286,20 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
         // Series never play in cinemas, ambiguous titles would match the wrong film, and
         // suppressed ones the user deleted. All three are handled elsewhere rather than
         // cluttering the list.
-        val matchable = content.watchlist.filter { it.isMatchable }
+        val identified = content.watchlist.filter { it.isMatchable }
+        // An entry keyed on its name alone is a half-finished import: no poster, no year, and
+        // about to be replaced by the same film under its TMDB id the moment identification
+        // reaches it. Showing that is showing our own workings — so it waits offstage, and the
+        // count of what is still being worked on is surfaced instead.
+        //
+        // Only while TMDB can actually answer, though. With no key configured nothing would ever
+        // gain an id, and hiding would empty the watchlist permanently.
+        val matchable =
+          if (prefs.tmdbKey.isNotBlank() || repository.hasBuiltInTmdbKey) {
+            identified.filter { it.tmdbId != null }
+          } else {
+            identified
+          }
         val entries =
           matchable
             .map {
@@ -240,24 +309,44 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
                 sources = sourcesByItem[it.id].orEmpty().map { row -> row.sourceId },
               )
             }
-            .let {
-              if (content.filters.soonOnly) it.filter { entry -> entry.nextScreening != null }
-              else it
-            }
             .let { list ->
-              // "Manual Add" is the absence of a real source rather than a row of its own for
-              // films added by hand and never claimed by a list, so match it that way too.
-              content.filters.source?.let { source ->
-                list.filter { entry ->
-                  source in entry.sources ||
-                    (source == WatchlistItem.SOURCE_MANUAL && entry.realSources.isEmpty())
+              val filters = content.filters.watchlist
+              if (filters.isEmpty) return@let list
+
+              // Additive within a facet, compounding across them: "Action or Comedy", "from
+              // Trakt or Google TV", "and showing soon". An empty facet is not a filter.
+              val tagsByCinema = content.cinemas.associate { it.id to it.tagList }
+              list.filter { entry ->
+                if (filters.showingSoon && entry.nextScreening == null) return@filter false
+                if (filters.mutedOnly && !entry.isMuted) return@filter false
+
+                if (filters.sources.isNotEmpty()) {
+                  // "Manual Add" is the absence of a real source rather than a row of its own,
+                  // for films added by hand and never claimed by a list.
+                  val matches =
+                    filters.sources.any { source ->
+                      source in entry.sources ||
+                        (source == WatchlistItem.SOURCE_MANUAL && entry.realSources.isEmpty())
+                    }
+                  if (!matches) return@filter false
                 }
-              } ?: list
-            }
-            .let { list ->
-              content.filters.genre?.let { genre ->
-                list.filter { entry -> genre in entry.item.genreList }
-              } ?: list
+
+                if (filters.genres.isNotEmpty() &&
+                  entry.item.genreList.none { it in filters.genres }
+                ) {
+                  return@filter false
+                }
+
+                if (filters.venueTags.isNotEmpty()) {
+                  // A venue tag is a fact about where a film is actually playing, so a film with
+                  // no screening yet cannot satisfy one.
+                  val playingAt =
+                    entry.screenings.flatMap { tagsByCinema[it.cinemaId].orEmpty() }.toSet()
+                  if (playingAt.none { it in filters.venueTags }) return@filter false
+                }
+
+                true
+              }
             }
             .let { list ->
               content.filters.query.trim().takeIf { it.isNotEmpty() }?.let { query ->
@@ -285,6 +374,7 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
           cinemas = content.cinemas,
           hasFilms = matchable.isNotEmpty(),
           trackedCount = matchable.size,
+          identifyingCount = identified.size - matchable.size,
           isSyncing = transient.syncing,
           syncStep = transient.step,
           lastReport = transient.report,
@@ -292,12 +382,11 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
           lastSyncSummary = prefs.summary,
           autoSyncEnabled = prefs.autoSync,
           syncIntervalHours = prefs.intervalHours,
+          syncHourOfDay = prefs.syncHour,
           horizonDays = prefs.horizonDays,
           notificationsEnabled = prefs.notifications,
           cinemaFilter = content.filters.cinemaId,
-          showingSoonOnly = content.filters.soonOnly,
-          sourceFilter = content.filters.source,
-          genreFilter = content.filters.genre,
+          filters = content.filters.watchlist,
           // Offered options come from what is actually there, so the picker never lists a source
           // or genre that would filter the list down to nothing.
           availableSources =
@@ -336,7 +425,7 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
       // one-shot on launch, not a subscription: the previous version re-ran a scan on every
       // watchlist emission, which looped forever once the list was empty.
       if (settings.autoSyncEnabled.first()) {
-        SyncWorker.schedulePeriodic(getApplication(), settings.currentIntervalHours())
+        SyncWorker.schedulePeriodic(getApplication(), settings.currentIntervalHours(), settings.currentSyncHour())
       }
     }
   }
@@ -364,7 +453,7 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
     viewModelScope.launch {
       settings.setAutoSyncEnabled(enabled)
       if (enabled) {
-        SyncWorker.schedulePeriodic(getApplication(), settings.currentIntervalHours())
+        SyncWorker.schedulePeriodic(getApplication(), settings.currentIntervalHours(), settings.currentSyncHour())
         message.value = "Background sync on"
       } else {
         SyncWorker.cancelPeriodic(getApplication())
@@ -377,9 +466,20 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
     viewModelScope.launch {
       settings.setSyncIntervalHours(hours)
       if (settings.autoSyncEnabled.first()) {
-        SyncWorker.schedulePeriodic(getApplication(), hours)
+        SyncWorker.schedulePeriodic(getApplication(), hours, settings.currentSyncHour())
       }
-      message.value = "Syncing every ${hours}h"
+      message.value = "Syncing ${SyncCadence.of(hours).label.lowercase()}"
+    }
+  }
+
+  /** What time of day the scheduled sync should aim for. */
+  fun setSyncHour(hour: Int) {
+    viewModelScope.launch {
+      settings.setSyncHourOfDay(hour)
+      if (settings.autoSyncEnabled.first()) {
+        SyncWorker.schedulePeriodic(getApplication(), settings.currentIntervalHours(), hour)
+      }
+      message.value = "Syncing around ${"%02d".format(hour)}:00"
     }
   }
 
@@ -401,6 +501,31 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
 
   fun setNotificationsEnabled(enabled: Boolean) {
     viewModelScope.launch { settings.setNotificationsEnabled(enabled) }
+  }
+
+  /**
+   * Whether the notification permission dialog has been shown before.
+   *
+   * Blocking, because the caller is a `LaunchedEffect` deciding whether to ask at all, and a
+   * frame of "not asked yet" would fire the prompt every launch.
+   */
+  suspend fun hasAskedForNotifications(): Boolean = settings.hasAskedForNotificationPermission()
+
+  fun markNotificationPermissionAsked() {
+    viewModelScope.launch { settings.markNotificationPermissionAsked() }
+  }
+
+  /**
+   * The user said no. Alerts goes off and stays off — leaving the switch on would promise
+   * notifications the system will never deliver, and it is the switch, not us, that asks again.
+   */
+  fun onNotificationPermissionDenied() {
+    viewModelScope.launch {
+      if (settings.notificationsEnabled.first()) {
+        settings.setNotificationsEnabled(false)
+        message.value = "Alerts off — Android needs notification permission for those."
+      }
+    }
   }
 
   // --- Watchlist ---
@@ -484,6 +609,19 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
       message.value = "Could not identify titles: ${error.message}"
     } finally {
       resolveProgress.value = null
+    }
+  }
+
+  /** Restore a CSV this app exported, merging it into whatever is already here. */
+  fun importBackup(uri: Uri) {
+    viewModelScope.launch {
+      try {
+        val count = repository.importBackup(uri)
+        message.value = "Restored $count films"
+        identifyThenSync()
+      } catch (error: Exception) {
+        message.value = error.message ?: "Restore failed"
+      }
     }
   }
 
@@ -598,19 +736,30 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
    * Settle an ambiguous title from a pasted IMDb or TMDB link, for the cases where none of the
    * offered candidates is the right film.
    */
-  fun resolveByLink(itemId: String, input: String) {
+  /**
+   * Look up a pasted link and offer what it found, rather than adopting it silently.
+   *
+   * A mistyped or mis-copied link resolves to a real film just as happily as the right one, and
+   * the whole reason this entry is in the queue is that the app was not sure. So the answer goes
+   * back as a candidate to confirm — poster, year and all — and [chooseCandidate] commits it.
+   */
+  fun previewLink(itemId: String, input: String) {
     if (input.isBlank()) return
     viewModelScope.launch {
+      linkPreview.value = null
       try {
         val candidate =
           repository.searchToAdd(input).firstOrNull()
             ?: error("Nothing found for that link.")
-        repository.resolveAmbiguity(itemId, candidate.asTitleCandidate(itemId))
-        message.value = "Set to ${candidate.title}${candidate.year?.let { " ($it)" } ?: ""}"
+        linkPreview.value = candidate.asTitleCandidate(itemId)
       } catch (error: Exception) {
         message.value = error.message ?: "Could not resolve that link"
       }
     }
+  }
+
+  fun clearLinkPreview() {
+    linkPreview.value = null
   }
 
   /**
@@ -715,24 +864,37 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
     cinemaFilter.value = cinemaId
   }
 
-  fun toggleShowingSoonOnly() {
-    showingSoonOnly.value = !showingSoonOnly.value
+  fun toggleShowingSoon() {
+    watchlistFilters.value =
+      watchlistFilters.value.let { it.copy(showingSoon = !it.showingSoon) }
   }
 
-  /** Show only films from one watchlist source; null shows every source. */
-  fun setSourceFilter(sourceId: String?) {
-    sourceFilter.value = sourceId
+  fun toggleMutedOnly() {
+    watchlistFilters.value = watchlistFilters.value.let { it.copy(mutedOnly = !it.mutedOnly) }
   }
 
-  /** Show only films in one TMDB genre; null shows every genre. */
-  fun setGenreFilter(genre: String?) {
-    genreFilter.value = genre
+  /** Add or remove one source from the filter; an empty set means every source. */
+  fun toggleSourceFilter(sourceId: String) {
+    watchlistFilters.value =
+      watchlistFilters.value.let { it.copy(sources = it.sources.toggle(sourceId)) }
+  }
+
+  fun toggleGenreFilter(genre: String) {
+    watchlistFilters.value =
+      watchlistFilters.value.let { it.copy(genres = it.genres.toggle(genre)) }
+  }
+
+  fun toggleVenueTagFilter(tag: String) {
+    watchlistFilters.value =
+      watchlistFilters.value.let { it.copy(venueTags = it.venueTags.toggle(tag)) }
   }
 
   fun clearFilters() {
-    sourceFilter.value = null
-    genreFilter.value = null
+    watchlistFilters.value = WatchlistFilters()
   }
+
+  private fun Set<String>.toggle(value: String): Set<String> =
+    if (value in this) this - value else this + value
 
   fun setWatchlistQuery(query: String) {
     watchlistQuery.value = query
@@ -755,11 +917,9 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
   // Grouping helpers keep the combine() above within its arity limit and readable.
   private data class Filters(
     val cinemaId: String?,
-    val soonOnly: Boolean,
+    val watchlist: WatchlistFilters,
     val query: String,
     val sort: WatchlistSort,
-    val source: String? = null,
-    val genre: String? = null,
   )
 
   private data class Content(
@@ -776,6 +936,7 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
     val intervalHours: Long,
     val horizonDays: Long,
     val tmdbKey: String,
+    val syncHour: Int,
   )
 
   private data class Prefs(
@@ -783,6 +944,7 @@ class KinoViewModel(application: Application) : AndroidViewModel(application) {
     val intervalHours: Long,
     val horizonDays: Long,
     val tmdbKey: String,
+    val syncHour: Int,
     val notifications: Boolean,
     val lastSyncAt: Long,
     val summary: String,

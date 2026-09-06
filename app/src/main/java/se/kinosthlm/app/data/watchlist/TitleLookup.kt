@@ -1,6 +1,7 @@
 package se.kinosthlm.app.data.watchlist
 
 import java.net.URLEncoder
+import java.text.Normalizer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -105,13 +106,15 @@ class TitleLookup(
     val query = title.trim()
     if (query.isEmpty()) return@withContext Result(emptyList())
 
-    val json = get("$baseUrl/search/multi?query=${encode(query)}&include_adult=false&$auth")
-    val results = JSONObject(json).optJSONArray("results") ?: return@withContext Result(emptyList())
-
-    val all =
-      (0 until results.length()).mapNotNull { index ->
-        results.optJSONObject(index)?.let(::candidateOf)
-      }
+    // TMDB's own search is inconsistent about Swedish diacritics: "Amelie från Montmartre"
+    // returns nothing at all, while the accent-folded "Amelie fran Montmartre" returns Amélie
+    // straight away. Same for "Blommor av stål" and "Bröderna Marx". Since every Stockholm
+    // cinema lists films under their Swedish release titles, that one quirk silently cost us a
+    // whole class of matches — so when the query as written finds nothing, ask again folded.
+    val all = search(query).ifEmpty {
+      val folded = foldAccents(query)
+      if (folded == query) emptyList() else search(folded)
+    }
     if (all.isEmpty()) return@withContext Result(emptyList())
 
     // Strict comparison: identity, not cinema matching. Article-insensitive comparison would
@@ -205,6 +208,25 @@ class TitleLookup(
         .getOrNull()
     candidate.copy(imdbId = imdbId)
   }
+
+  /** One multi-search round trip, mapped to candidates. */
+  private fun search(query: String): List<Candidate> {
+    val json = get("$baseUrl/search/multi?query=${encode(query)}&include_adult=false&$auth")
+    val results = JSONObject(json).optJSONArray("results") ?: return emptyList()
+    return (0 until results.length()).mapNotNull { index ->
+      results.optJSONObject(index)?.let(::candidateOf)
+    }
+  }
+
+  /** "Amelie från Montmartre" → "Amelie fran Montmartre". Case and spacing are left alone. */
+  private fun foldAccents(raw: String): String =
+    Normalizer.normalize(raw, Normalizer.Form.NFD)
+      .replace(Regex("""\p{Mn}+"""), "")
+      .replace('ø', 'o')
+      .replace('Ø', 'O')
+      .replace('æ', 'a')
+      .replace('Æ', 'A')
+      .replace('ß', 's')
 
   /** TMDB uses `title`/`release_date` for films and `name`/`first_air_date` for series. */
   private fun candidateOf(entry: JSONObject, forcedType: String? = null): Candidate? {

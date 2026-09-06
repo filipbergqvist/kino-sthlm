@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import se.kinosthlm.app.data.model.WatchlistItem
+import se.kinosthlm.app.data.watchlist.CsvWatchlistImporter
 import se.kinosthlm.app.data.watchlist.WatchlistCsvExporter
 
 /**
@@ -32,7 +33,7 @@ class WatchlistCsvExporterTest {
   fun `writes trakt's header`() {
     val csv = WatchlistCsvExporter.toCsv(emptyList())
 
-    assertEquals("id,type,watched_at,watchlisted_at,rating,rated_at", csv.trim())
+    assertEquals("id,type,watched_at,watchlisted_at,rating,rated_at,title,year", csv.trim())
   }
 
   @Test
@@ -54,9 +55,9 @@ class WatchlistCsvExporterTest {
   fun `records when a film was added, and never claims it was watched`() {
     val csv = WatchlistCsvExporter.toCsv(listOf(film("imdb:tt1", "A Film", imdbId = "tt1")))
 
-    // id, type, watched_at, watchlisted_at, rating, rated_at
+    // id, type, watched_at, watchlisted_at, rating, rated_at, title, year
     val fields = csv.lines()[1].split(",")
-    assertEquals(6, fields.size)
+    assertEquals(8, fields.size)
     assertEquals("", fields[2])
     assertTrue("watchlisted_at should be ISO 8601: ${fields[3]}", fields[3].endsWith("Z"))
     // This app tracks intent to see a film, so a rating would be invented data.
@@ -86,5 +87,44 @@ class WatchlistCsvExporterTest {
 
     assertEquals(2, csv.lines().count { it.isNotBlank() })
     assertTrue(csv.contains("imdb_id:tt1"))
+  }
+
+  @Test
+  fun `carries the title and year, so the export can be read back`() {
+    val csv = WatchlistCsvExporter.toCsv(listOf(film("tmdb:19", "Metropolis", tmdbId = 19).copy(year = 1927)))
+
+    val fields = csv.lines()[1].split(",")
+    assertEquals(8, fields.size)
+    assertEquals("\"Metropolis\"", fields[6])
+    assertEquals("1927", fields[7])
+  }
+
+  @Test
+  fun `escapes a title containing a comma`() {
+    val csv = WatchlistCsvExporter.toCsv(listOf(film("imdb:tt1", "Salò, or the 120 Days", imdbId = "tt1")))
+
+    assertTrue(csv, csv.contains("\"Salò, or the 120 Days\""))
+    // Still one row: the comma inside the quotes must not split the line.
+    assertEquals(2, csv.lines().count { it.isNotBlank() })
+  }
+
+  @Test
+  fun `an exported watchlist imports back with its ids intact`() {
+    val original =
+      listOf(
+        film("tmdb:19", "Metropolis", tmdbId = 19).copy(year = 1927),
+        film("imdb:tt0017136", "Nosferatu", imdbId = "tt0017136").copy(year = 1922),
+      )
+
+    val csv = WatchlistCsvExporter.toCsv(original)
+    val reimported = CsvWatchlistImporter.parse(csv.byteInputStream(), WatchlistItem.SOURCE_MANUAL)
+
+    assertEquals(listOf("Metropolis", "Nosferatu"), reimported.map { it.title })
+    assertEquals(listOf(1927, 1922), reimported.map { it.year })
+    // The whole point: the films come back already identified, rather than as bare titles
+    // waiting to be looked up all over again.
+    assertEquals(19, reimported[0].tmdbId)
+    assertEquals("tt0017136", reimported[1].imdbId)
+    assertEquals(original.map { it.id }, reimported.map { it.id })
   }
 }

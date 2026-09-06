@@ -12,6 +12,8 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import java.time.Duration
+import java.time.LocalDateTime
 import java.util.concurrent.TimeUnit
 import se.kinosthlm.app.data.repository.KinoRepository
 
@@ -48,16 +50,30 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
     /**
      * (Re)schedule the recurring sync. UPDATE keeps the existing work's history, so changing the
      * interval does not reset the schedule or trigger an immediate run.
+     *
+     * [hourOfDay] is when the first run of each period should land, in local time. Cinema
+     * programmes change once a day at most, so the point of syncing is to have looked *today*,
+     * not to have looked recently — and a fixed hour means it happens overnight rather than
+     * whenever the app last happened to be opened. WorkManager treats it as an initial delay,
+     * not a guarantee; it will still defer for Doze and network.
      */
-    fun schedulePeriodic(context: Context, intervalHours: Long) {
+    fun schedulePeriodic(context: Context, intervalHours: Long, hourOfDay: Int) {
       val request =
         PeriodicWorkRequestBuilder<SyncWorker>(intervalHours, TimeUnit.HOURS)
           .setConstraints(constraints)
+          .setInitialDelay(minutesUntil(hourOfDay), TimeUnit.MINUTES)
           .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.MINUTES)
           .build()
 
       WorkManager.getInstance(context)
         .enqueueUniquePeriodicWork(PERIODIC_WORK, ExistingPeriodicWorkPolicy.UPDATE, request)
+    }
+
+    /** Minutes from now until the next [hourOfDay] in local time. */
+    internal fun minutesUntil(hourOfDay: Int, now: LocalDateTime = LocalDateTime.now()): Long {
+      val target = now.toLocalDate().atTime(hourOfDay.coerceIn(0, 23), 0)
+      val next = if (target.isAfter(now)) target else target.plusDays(1)
+      return Duration.between(now, next).toMinutes()
     }
 
     fun cancelPeriodic(context: Context) {

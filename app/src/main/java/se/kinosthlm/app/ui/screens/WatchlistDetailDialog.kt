@@ -139,8 +139,10 @@ fun WatchlistDetailDialog(
             }
           }
 
-          // Pointless while nothing can notify at all, so it does not appear then.
-          if (notificationsEnabled) {
+          // Pointless while nothing can notify at all — whether that is notifications off
+          // everywhere, or this one film muted. Asking which kind of cinema to notify about a
+          // film you have silenced is a setting that cannot do anything.
+          if (notificationsEnabled && !entry.isMuted) {
             Spacer(Modifier.height(16.dp))
             Text(
               "Notify for",

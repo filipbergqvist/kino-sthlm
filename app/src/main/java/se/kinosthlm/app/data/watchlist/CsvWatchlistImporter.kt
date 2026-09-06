@@ -19,7 +19,9 @@ object CsvWatchlistImporter {
 
   private val TITLE_KEYS = listOf("title", "primary title", "original title", "name", "movie")
   private val YEAR_KEYS = listOf("year", "release year", "release date")
-  private val ID_KEYS = listOf("const", "imdb id", "imdbid", "tconst")
+  // "id" last: it is what our own (Trakt-format) export calls the column, but a plain "id" in
+  // someone else's export is more likely a row number, so a real IMDb column wins where present.
+  private val ID_KEYS = listOf("const", "imdb id", "imdbid", "tconst", "id")
   private val TYPE_KEYS = listOf("title type", "type")
 
   /**
@@ -31,6 +33,9 @@ object CsvWatchlistImporter {
    * deliberately absent: those do turn up in cinema retrospectives.
    */
   private val NON_FILM_TYPES = listOf("tv series", "tv mini", "tv episode", "video game", "podcast")
+
+  /** Trakt's prefixed TMDB id, as our own export writes it: "tmdb_id:603". */
+  private val TMDB_ID_CELL = Regex("""tmdb_id:(\d+)""")
 
   /** An IMDb id occupying a whole cell, not a title that merely starts with "tt". */
   private val IMDB_ID_CELL = Regex("""^tt\d{5,}$""")
@@ -78,20 +83,25 @@ object CsvWatchlistImporter {
         val year = yearColumn?.let { column ->
           Regex("(19|20)\\d{2}").find(row.getOrNull(column).orEmpty())?.value?.toIntOrNull()
         } ?: titleYear
-        val imdbId = idColumn?.let { column ->
-          Regex("tt\\d+").find(row.getOrNull(column).orEmpty())?.value
-        }
+        val idCell = idColumn?.let { row.getOrNull(it).orEmpty() }.orEmpty()
+        val imdbId = Regex("tt\\d+").find(idCell)?.value
+        // Our own export writes Trakt's prefixed form, "tmdb_id:603". Reading it back keeps the
+        // film on the id it already had rather than sending it round TMDB again to rediscover
+        // something we knew when we wrote the file.
+        val tmdbId = TMDB_ID_CELL.find(idCell)?.groupValues?.get(1)?.toIntOrNull()
 
         val declaredType = typeColumn?.let { row.getOrNull(it)?.trim()?.lowercase() }.orEmpty()
         val isSeries = NON_FILM_TYPES.any { declaredType.contains(it) }
 
         WatchlistItem(
-          // No TMDB id at parse time — CSV rows only ever carry IMDb ids. TitleResolver
-          // backfills the TMDB id afterwards and re-keys the row onto it.
-          id = WatchlistItem.idFor(tmdbId = null, imdbId, title, year),
+          // Usually no TMDB id at parse time — most exports carry only IMDb ids, and
+          // TitleResolver backfills the rest afterwards, re-keying the row onto it. Our own
+          // export is the exception: it wrote the TMDB id, so the entry lands identified.
+          id = WatchlistItem.idFor(tmdbId, imdbId, title, year),
           title = title,
           year = year,
           imdbId = imdbId,
+          tmdbId = tmdbId,
           // Only ever set to "series" here; an unrecognised or missing type stays UNKNOWN so
           // TMDB still gets its say.
           titleType =

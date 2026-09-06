@@ -120,6 +120,20 @@ dependencies {
   "ksp"(libs.androidx.room.compiler)
 }
 
+/**
+ * Write the schema of every database version to `app/schemas/`, and commit them.
+ *
+ * This is the safety net behind "does updating the app keep my watchlist". Room only migrates a
+ * database it has a written path for; without one it falls back to dropping every table — which
+ * is survivable for reference data and catastrophic for a watchlist that took a Trakt
+ * authorisation and two CSV imports to assemble. With the schemas checked in, a change that needs
+ * a migration shows up in the diff, and can be tested against the previous version, rather than
+ * being discovered by whoever updates first.
+ */
+ksp {
+  arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 // Without this, Kotlin follows whatever JDK runs Gradle (25 in CI) and emits class files
 // Robolectric's bundled ASM cannot parse ("IllegalArgumentException" from ClassReader).
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {

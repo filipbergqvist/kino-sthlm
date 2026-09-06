@@ -2,6 +2,7 @@ package se.kinosthlm.app
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -53,6 +54,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import se.kinosthlm.app.data.model.WatchlistItem
@@ -96,6 +98,7 @@ class MainActivity : ComponentActivity() {
 fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
   val uiState by viewModel.uiState.collectAsStateWithLifecycle()
   val addSearchState by viewModel.addSearchState.collectAsStateWithLifecycle()
+  val linkPreview by viewModel.linkPreviewState.collectAsStateWithLifecycle()
   val context = LocalContext.current
 
   var tab by remember { mutableIntStateOf(startTab) }
@@ -115,14 +118,39 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
 
   /**
    * Android 13+ will not show a single notification until this is granted, which would look
-   * exactly like a broken scraper. Ask once, on first launch.
+   * exactly like a broken scraper.
+   *
+   * Asked once, on first launch, and never again unprompted: Android itself stops showing the
+   * dialog after two refusals, so an app that keeps asking is just showing a no-op. A "no" turns
+   * the Alerts switch off, because leaving it on would promise something the system will not
+   * deliver. Turning it back on asks again — that *is* the user prompting us — and if they refuse
+   * again it goes straight back off.
    */
   val notificationPermission =
-    rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+      if (!granted) viewModel.onNotificationPermissionDenied()
+    }
   LaunchedEffect(Unit) {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+      !viewModel.hasAskedForNotifications()
+    ) {
+      viewModel.markNotificationPermissionAsked()
       notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
+  }
+
+  /** Turning Alerts on has to come with the permission, or it switches itself straight back off. */
+  val setNotifications: (Boolean) -> Unit = { wanted ->
+    val needsPermission =
+      wanted &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+          PackageManager.PERMISSION_GRANTED
+    if (needsPermission) {
+      viewModel.markNotificationPermissionAsked()
+      notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+    viewModel.setNotificationsEnabled(wanted)
   }
 
   // CSV import via the system file picker — no storage permission needed.
@@ -130,6 +158,11 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
   val pickCsv =
     rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
       if (uri != null) viewModel.importCsv(uri, pendingCsvSource)
+    }
+  // A backup restore merges rather than replacing a source, so it gets its own picker.
+  val pickBackup =
+    rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+      if (uri != null) viewModel.importBackup(uri)
     }
   val saveCsv =
     rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) {
@@ -250,7 +283,6 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
           WatchlistScreen(
             uiState = uiState,
             onSync = { viewModel.sync() },
-            onToggleShowingSoon = { viewModel.toggleShowingSoonOnly() },
             onOpenBooking = openUrl,
             onOpenSources = { tab = 3 },
             onReview = { showReviewDialog = true },
@@ -290,13 +322,15 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
               pickCsv.launch(CSV_MIME_TYPES)
             },
             onImportImdbList = { showImdbListDialog = true },
+            onImportBackup = { pickBackup.launch(CSV_MIME_TYPES) },
             onBatchAdd = { showBatchAddDialog = true },
             onExportCsv = { saveCsv.launch("kinosthlm-watchlist.csv") },
             onSetAutoSync = { viewModel.setAutoSync(it) },
             onSetInterval = { viewModel.setSyncInterval(it) },
+            onSetSyncHour = { viewModel.setSyncHour(it) },
             onSetHorizon = { viewModel.setHorizonDays(it) },
             onSetTmdbKey = { viewModel.setTmdbApiKey(it) },
-            onSetNotifications = { viewModel.setNotificationsEnabled(it) },
+            onSetNotifications = setNotifications,
             onSyncNow = { viewModel.sync() },
             onResolveTitles = { viewModel.resolveTitlesNow() },
             onTestNotification = { viewModel.sendTestNotification() },
@@ -348,7 +382,9 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
     ReviewDialog(
       entries = uiState.needsReview,
       onChoose = { itemId, candidate -> viewModel.chooseCandidate(itemId, candidate) },
-      onResolveByLink = { itemId, link -> viewModel.resolveByLink(itemId, link) },
+      onPreviewLink = { itemId, link -> viewModel.previewLink(itemId, link) },
+      linkPreview = linkPreview,
+      onCancelLinkPreview = { viewModel.clearLinkPreview() },
       onKeepAsFilm = { viewModel.keepAsFilm(it) },
       onRemove = { viewModel.removeFilm(it) },
       onOpenLink = openUrl,
@@ -358,8 +394,11 @@ fun KinoApp(viewModel: KinoViewModel, startTab: Int = 0) {
   if (showFiltersSheet) {
     WatchlistFiltersSheet(
       uiState = uiState,
-      onSetSource = { viewModel.setSourceFilter(it) },
-      onSetGenre = { viewModel.setGenreFilter(it) },
+      onToggleShowingSoon = { viewModel.toggleShowingSoon() },
+      onToggleMutedOnly = { viewModel.toggleMutedOnly() },
+      onToggleSource = { viewModel.toggleSourceFilter(it) },
+      onToggleGenre = { viewModel.toggleGenreFilter(it) },
+      onToggleVenueTag = { viewModel.toggleVenueTagFilter(it) },
       onClear = { viewModel.clearFilters() },
       onDismiss = { showFiltersSheet = false },
     )

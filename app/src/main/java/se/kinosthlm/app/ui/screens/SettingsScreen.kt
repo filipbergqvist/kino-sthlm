@@ -2,6 +2,8 @@ package se.kinosthlm.app.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -34,10 +36,15 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import se.kinosthlm.app.notification.NotificationHelper
+import se.kinosthlm.app.ui.viewmodel.SyncCadence
 import se.kinosthlm.app.ui.viewmodel.TraktState
 import se.kinosthlm.app.ui.viewmodel.UiState
 
+/** Where bug reports and feature requests go. Public, so nothing needs an account to read. */
+private const val ISSUES_URL = "https://github.com/filipbergqvist/kino-sthlm/issues"
+
 /** Sources, schedule and alerts. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
   uiState: UiState,
@@ -48,9 +55,11 @@ fun SettingsScreen(
   onImportGoogleTvCsv: () -> Unit,
   onImportImdbList: () -> Unit,
   onBatchAdd: () -> Unit,
+  onImportBackup: () -> Unit,
   onExportCsv: () -> Unit,
   onSetAutoSync: (Boolean) -> Unit,
   onSetInterval: (Long) -> Unit,
+  onSetSyncHour: (Int) -> Unit,
   onSetHorizon: (Long) -> Unit,
   onSetTmdbKey: (String) -> Unit,
   onSetNotifications: (Boolean) -> Unit,
@@ -144,6 +153,11 @@ fun SettingsScreen(
         SettingRow("Paste a list", "For a watchlist kept somewhere with no export") {
           TextButton(onClick = onBatchAdd, modifier = Modifier.testTag("batch_add")) { Text("Paste") }
         }
+        SettingRow("KinoSthlm backup", "A CSV this app exported, from any device") {
+          TextButton(onClick = onImportBackup, modifier = Modifier.testTag("import_backup")) {
+            Text("Import")
+          }
+        }
       }
     }
 
@@ -157,19 +171,48 @@ fun SettingsScreen(
           )
         }
         if (uiState.autoSyncEnabled) {
+          // Cinema programmes change once a day at most, so the options start at daily. The old
+          // three- and six-hourly choices only re-read the same pages, which is why they came
+          // with a note asking people to be considerate — better to make the choices themselves
+          // considerate than to ask.
           Text("How often", style = MaterialTheme.typography.bodyMedium)
-          Row(
-            Modifier.padding(vertical = 4.dp),
+          val cadence = SyncCadence.of(uiState.syncIntervalHours)
+          FlowRow(
+            Modifier.fillMaxWidth().padding(vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
           ) {
-            for (hours in listOf(3L, 6L, 12L, 24L)) {
+            for (option in SyncCadence.entries) {
               FilterChip(
-                selected = uiState.syncIntervalHours == hours,
-                onClick = { onSetInterval(hours) },
-                label = { Text("${hours}h") },
+                selected = cadence == option,
+                onClick = { onSetInterval(option.hours) },
+                label = { Text(option.label) },
+                modifier = Modifier.testTag("cadence_${option.name}"),
               )
             }
           }
+
+          Text("Around what time", style = MaterialTheme.typography.bodyMedium)
+          FlowRow(
+            Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+          ) {
+            for (hour in listOf(4, 8, 12, 18, 22)) {
+              FilterChip(
+                selected = uiState.syncHourOfDay == hour,
+                onClick = { onSetSyncHour(hour) },
+                label = { Text("%02d:00".format(hour)) },
+                modifier = Modifier.testTag("sync_hour_$hour"),
+              )
+            }
+          }
+          Text(
+            "Android decides the exact moment — it will wait for a network and may hold off " +
+              "while the phone is asleep.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
         }
         // Repertory cinemas post months ahead; too short a window silently hides exactly the
         // one-off screenings worth knowing about early.
@@ -201,21 +244,22 @@ fun SettingsScreen(
           Modifier.padding(top = 8.dp),
           horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-          OutlinedButton(
-            onClick = onSyncNow,
-            enabled = !uiState.isSyncing,
-            modifier = Modifier.testTag("sync_now"),
-          ) {
-            Text(if (uiState.isSyncing) "Syncing…" else "Sync now")
-          }
-          // Google TV titles arrive bare; this puts IMDb ids and years on them in one pass
-          // instead of the sync chipping away at them a hundred at a time.
+          // Identify first, sync second — the order the work actually happens in, and the order
+          // you would press them: a film has to be identified before a cinema can be asked
+          // about it.
           OutlinedButton(
             onClick = onResolveTitles,
             enabled = !uiState.isResolving && uiState.tmdbConfigured,
             modifier = Modifier.testTag("resolve_titles"),
           ) {
             Text(if (uiState.isResolving) "Identifying…" else "Identify titles")
+          }
+          OutlinedButton(
+            onClick = onSyncNow,
+            enabled = !uiState.isSyncing,
+            modifier = Modifier.testTag("sync_now"),
+          ) {
+            Text(if (uiState.isSyncing) "Syncing…" else "Sync now")
           }
         }
         // The same bar the watchlist shows, right under the buttons that start the work — you
@@ -281,8 +325,8 @@ fun SettingsScreen(
     item {
       Section("Export") {
         Text(
-          "Write your watchlist out as a CSV in Trakt's import format. Films with no IMDb or " +
-            "TMDB id are left out, since that id is what Trakt matches on.",
+          "Write your watchlist out as a CSV, ready to import into Trakt — or back into " +
+            "KinoSthlm on another device.",
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -292,6 +336,35 @@ fun SettingsScreen(
         ) {
           Text("Export CSV")
         }
+      }
+    }
+
+    // Between Export and About, as asked. A link rather than an in-app form: posting to the
+    // tracker needs a GitHub account and a token, and neither belongs in an app with no server
+    // and no accounts — the browser already has the login.
+    item {
+      Section("Feedback") {
+        Text(
+          "Found a bug, or want something added? The issue tracker is the place — it is public, " +
+            "so you can see what is already known.",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+          OutlinedButton(
+            onClick = { onOpenUrl("$ISSUES_URL/new?labels=bug") },
+            modifier = Modifier.testTag("report_bug"),
+          ) {
+            Text("Report a bug")
+          }
+          OutlinedButton(
+            onClick = { onOpenUrl("$ISSUES_URL/new?labels=enhancement") },
+            modifier = Modifier.testTag("request_feature"),
+          ) {
+            Text("Request a feature")
+          }
+        }
+        TextButton(onClick = { onOpenUrl(ISSUES_URL) }) { Text("Browse open issues") }
       }
     }
 

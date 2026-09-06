@@ -76,7 +76,6 @@ import se.kinosthlm.app.ui.viewmodel.WatchlistSort
 fun WatchlistScreen(
   uiState: UiState,
   onSync: () -> Unit,
-  onToggleShowingSoon: () -> Unit,
   onOpenBooking: (String) -> Unit,
   onOpenSources: () -> Unit,
   onReview: () -> Unit,
@@ -149,14 +148,8 @@ fun WatchlistScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
           ) {
-            FilterChip(
-              selected = uiState.showingSoonOnly,
-              onClick = onToggleShowingSoon,
-              label = { Text("Showing soon") },
-              modifier = Modifier.testTag("filter_showing_soon"),
-            )
-            // Source and genre live behind this rather than as two more chips: the row is only
-            // so wide, and both are pickers rather than on/off switches.
+            // Every filter now lives behind this one chip — "showing soon" included. There are
+            // five facets, which is three too many to sit in a row this narrow.
             FilterChip(
               selected = uiState.activeFilterCount > 0,
               onClick = onOpenFilters,
@@ -206,24 +199,25 @@ fun WatchlistScreen(
             title =
               when {
                 uiState.watchlistQuery.isNotEmpty() -> "No matches"
+                uiState.filters.showingSoon && uiState.activeFilterCount == 1 ->
+                  "Nothing scheduled yet"
                 uiState.activeFilterCount > 0 -> "Nothing matches those filters"
-                uiState.showingSoonOnly -> "Nothing scheduled yet"
+                uiState.identifyingCount > 0 -> "Still identifying"
                 else -> "No films synced yet"
               },
             body =
               when {
                 uiState.watchlistQuery.isNotEmpty() ->
                   "Nothing in your watchlist matches \"${uiState.watchlistQuery}\"."
-                uiState.activeFilterCount > 0 ->
-                  listOfNotNull(
-                      uiState.sourceFilter?.let { "from ${sourceLabel(it)}" },
-                      uiState.genreFilter?.let { "in $it" },
-                    )
-                    .joinToString(" and ")
-                    .let { "No films $it. Clear the filters to see everything again." }
-                uiState.showingSoonOnly ->
+                uiState.filters.showingSoon && uiState.activeFilterCount == 1 ->
                   "None of your films have a Stockholm screening in the window yet. " +
                     "You will get a notification the moment one is announced."
+                uiState.activeFilterCount > 0 ->
+                  "No films match all ${uiState.activeFilterCount} filters. " +
+                    "Clear some to see more."
+                uiState.identifyingCount > 0 ->
+                  "${uiState.identifyingCount} imported title(s) are being looked up. They " +
+                    "appear here as soon as we know which films they are."
                 else -> "Connect Trakt or import a watchlist export to get started."
               },
           )
@@ -284,7 +278,11 @@ private fun SyncWidget(uiState: UiState, onSync: () -> Unit, onOpenSources: () -
           )
           Text(
             syncStatusText(uiState)
-              ?: if (uiState.lastSyncAt > 0L) {
+              ?: if (uiState.identifyingCount > 0) {
+                // Imported titles wait offstage until they have a TMDB id, so say how many are
+                // still in the queue rather than letting an import look like it lost films.
+                "${uiState.identifyingCount} more still being identified"
+              } else if (uiState.lastSyncAt > 0L) {
                 "Last synced ${NotificationHelper.formatTime(uiState.lastSyncAt)}"
               } else {
                 "Not synced yet"
