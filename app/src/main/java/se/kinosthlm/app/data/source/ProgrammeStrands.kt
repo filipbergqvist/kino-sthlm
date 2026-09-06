@@ -78,6 +78,9 @@ object ProgrammeStrands {
       "afternoon tea",
       "babybio",
       "barnbio",
+      // Kulturhuset's own strands: pram-friendly mornings and knitting nights.
+      "barnvagnsbio",
+      "stickbio",
       "broderna marx",
       // A collaboration credit, not part of the film's name: "Cinemateket: Persona".
       "cinemateket",
@@ -99,6 +102,8 @@ object ProgrammeStrands {
       "seniorbio",
       "sommarbio",
       "sondagsbio",
+      // A festival name in front of the film, same shape as a strand: "Timelessfest: Amelie".
+      "timelessfest",
     )
 
   /**
@@ -153,7 +158,7 @@ object ProgrammeStrands {
       // the draw, but the film is what it is, and a name TMDB has never heard of on the end
       // means neither reaches the app.
       Regex(
-        """\s*[+&]\s*(?:q\s*&\s*a|samtal|panelsamtal|introduktion|inledning|regiss[oö]rsbesök)\b.*$""",
+        """\s*[+&]\s*(?:q\s*&\s*a|film|panel)?samtal\b.*$|\s*[+&]\s*(?:q\s*&\s*a|introduktion|inledning|regiss[oö]rsbesök)\b.*$""",
         RegexOption.IGNORE_CASE,
       ),
       Regex("""\s*\(?\s*\d{1,2}\s*[aå]r\s*\)?\s*!*\s*$""", RegexOption.IGNORE_CASE),

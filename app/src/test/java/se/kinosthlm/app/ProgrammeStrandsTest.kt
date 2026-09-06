@@ -140,6 +140,15 @@ class ProgrammeStrandsTest {
   }
 
   @Test
+  fun `strips kulturhuset's strands and its film-talk suffix`() {
+    // Nine of Kulturhuset's twenty-eight unmatched listings were these three labels alone.
+    assertEquals("Spa Weekend", clean("Stickbio: Spa Weekend"))
+    assertEquals("Det grönaste gräset", clean("Barnvagnsbio: Det grönaste gräset"))
+    assertEquals("Amelie från Montmartre", clean("Timelessfest: Amelie från Montmartre"))
+    assertEquals("Flygande fisken", clean("Flygande fisken + filmsamtal"))
+  }
+
+  @Test
   fun `strips presentation notes that carry no brackets`() {
     // Bio Rio writes them as plain text, so the bracket rules never saw them and the film went
     // looking for something called "The Odyssey 35mm - otextad".
